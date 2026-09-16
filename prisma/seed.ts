@@ -127,7 +127,7 @@ async function main() {
       siteTitle: 'كوبالت | متجر الخدمات الرقمية والتسويقية والمواقع',
       siteDescription:
         'المتجر الإلكتروني المباشر لخدمات كوبالت الرقمية: السوشيال ميديا، تصميم موقع إلكتروني، المتجر الإلكتروني، موشن جرافيك وفيديو، والتسويق والإعلانات مع حاسبة تكلفة وسلة شراء سريعة.',
-      whatsappNumber: '966500000000',
+      whatsappNumber: '201061265862',
       logoUrl: '/assets/logo-cobalt-Be-YWUxa.png',
       instagramUrl: 'https://instagram.com',
       twitterUrl: 'https://twitter.com',

@@ -5,6 +5,7 @@ import path from 'path';
 import publicRoutes from './routes/public';
 import adminRoutes from './routes/admin';
 import { publicCmsRouter, adminCmsRouter } from './routes/cms';
+import aiRoutes from './routes/ai';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -28,6 +29,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use('/api', publicRoutes);
 app.use('/api', publicCmsRouter);
+app.use('/api', aiRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin', adminCmsRouter);
 
@@ -42,4 +44,11 @@ if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process
 
 app.listen(port, () => {
   console.log(`Cobalt backend listening on http://localhost:${port}`);
+  const ai =
+    process.env.GROQ_API_KEY?.trim()
+      ? 'Groq (free)'
+      : process.env.GEMINI_API_KEY?.trim()
+        ? 'Gemini (free)'
+        : 'offline knowledge fallback';
+  console.log(`Customer AI: ${ai}`);
 });
