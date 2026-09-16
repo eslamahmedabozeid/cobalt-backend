@@ -1,0 +1,381 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Currency {
+  id     String  @id @default(cuid())
+  code   String  @unique
+  symbol String
+  rate   Float
+  name   String
+  flag   String
+  active Boolean @default(true)
+}
+
+model SiteSettings {
+  id              String   @id @default("default")
+  siteTitle       String
+  siteDescription String
+  whatsappNumber  String
+  logoUrl         String
+  instagramUrl    String
+  twitterUrl      String
+  tiktokUrl       String
+  copyrightText   String
+  paymentBadges   String // JSON array string
+  footerDesc      String  @default("")
+  supportBlurb    String  @default("")
+  updatedAt       DateTime @updatedAt
+}
+
+model Category {
+  id        String  @id
+  name      String
+  icon      String  @default("🛠")
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model ContentSection {
+  id     String  @id // e.g. value-props, how-it-works, process, guarantees, comparison, bundles, faq, reviews, portfolio, calculator
+  tag    String  @default("")
+  title  String  @default("")
+  desc   String  @default("")
+  active Boolean @default(true)
+}
+
+model FeatureBadge {
+  id        String  @id @default(cuid())
+  icon      String
+  title     String
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model TrustStat {
+  id        String  @id @default(cuid())
+  value     String
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model ValuePropCard {
+  id        String  @id @default(cuid())
+  icon      String
+  title     String
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model HowItWorksStep {
+  id        String  @id @default(cuid())
+  icon      String
+  title     String
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model ProcessStep {
+  id        String  @id @default(cuid())
+  badge     String  @default("")
+  icon      String
+  title     String
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model GuaranteeCard {
+  id        String  @id @default(cuid())
+  icon      String
+  title     String
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model ComparisonColumn {
+  id            String  @id @default(cuid())
+  icon          String
+  title         String
+  sub           String
+  featured      Boolean @default(false)
+  featuredBadge String?
+  ctaHref       String?
+  ctaLabel      String?
+  sortOrder     Int     @default(0)
+  active        Boolean @default(true)
+  items         ComparisonItem[]
+}
+
+model ComparisonItem {
+  id        String  @id @default(cuid())
+  columnId  String
+  tone      String  // positive | negative
+  label     String
+  text      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+  column    ComparisonColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+}
+
+model InquiriesCta {
+  id                 String  @id @default("default")
+  badge              String
+  title              String
+  descPrefix         String
+  couponCode         String
+  primaryCtaHref     String
+  primaryCtaLabel    String
+  whatsappCtaLabel   String
+  whatsappPrefillText String
+  active             Boolean @default(true)
+}
+
+model NavItem {
+  id          String  @id @default(cuid())
+  href        String
+  label       String
+  mobileLabel String
+  sortOrder   Int     @default(0)
+  active      Boolean @default(true)
+}
+
+model TopBarPromo {
+  id         String  @id @default("default")
+  badge      String
+  couponCode String
+  message    String
+  active     Boolean @default(true)
+}
+
+model FooterLink {
+  id        String  @id @default(cuid())
+  href      String
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  filename  String
+  url       String
+  mimeType  String
+  size      Int
+  createdAt DateTime @default(now())
+}
+
+model Service {
+  id            String   @id // use frontend id e.g. social-media-posts
+  slug          String   @unique
+  title         String
+  category      String
+  categoryName  String
+  badge         String
+  delivery      String
+  rating        Float
+  reviewsCount  Int
+  image         String
+  priceSAR      Int
+  oldPriceSAR   Int
+  shortDesc     String
+  deliverables  String // JSON array
+  sortOrder     Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  packages      ServicePackage[]
+  addons        ServiceAddon[]
+  requirementSchema ServiceRequirementSchema?
+  orderItems    OrderItem[]
+}
+
+model ServicePackage {
+  id          String  @id // frontend package id
+  serviceId   String
+  name        String
+  priceSAR    Int
+  description String
+  sortOrder   Int     @default(0)
+  active      Boolean @default(true)
+
+  service     Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  orderItems  OrderItem[]
+}
+
+model ServiceAddon {
+  id        String  @id // frontend addon id
+  serviceId String
+  title     String
+  priceSAR  Int
+  desc      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRequirementSchema {
+  id        String   @id @default(cuid())
+  serviceId String   @unique
+  schemaJson String  // JSON: keys, required, conditionals, allowedValues
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model Bundle {
+  id           String  @id // stable: bundle-presence-360, bundle-sales-media
+  title        String
+  badge        String
+  description  String
+  priceSAR     Int
+  compareAtSAR Int
+  image        String
+  sortOrder    Int     @default(0)
+  active       Boolean @default(true)
+
+  orderItems   OrderItem[]
+}
+
+model CalculatorConfig {
+  id                    String @id @default("default")
+  expressFeeSAR         Int
+  vipFeeSAR             Int
+  multilingualFeeSAR    Int
+  normalLabel           String
+  expressLabel          String
+  vipLabel              String
+  multilingualLabel     String
+}
+
+model Coupon {
+  id                 String    @id @default(cuid())
+  code               String    @unique
+  discountPercentage Int
+  active             Boolean   @default(true)
+  expiresAt          DateTime?
+  usageLimit         Int?
+  usedCount          Int       @default(0)
+  createdAt          DateTime  @default(now())
+}
+
+model HeroSlide {
+  id        String  @id
+  title     String
+  subtitle  String
+  tag       String
+  image     String
+  link      String
+  ctaText   String?
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model PortfolioItem {
+  id           String  @id
+  title        String
+  tag          String
+  categoryName String
+  client       String
+  duration     String
+  serviceUrl   String
+  desc         String
+  image        String
+  features     String // JSON array
+  sortOrder    Int     @default(0)
+  active       Boolean @default(true)
+}
+
+model Testimonial {
+  id        String  @id
+  author    String
+  company   String
+  avatar    String
+  stars     String
+  text      String
+  purchased String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model Faq {
+  id        String  @id
+  question  String
+  answer    String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model Order {
+  id                 String   @id @default(cuid())
+  orderNumber        String   @unique
+  status             String   @default("submitted")
+  paymentStatus      String   @default("unpaid")
+  paymentMethod      String?
+  currency           String   @default("SAR")
+  couponCode         String?
+  discountPercentage Int      @default(0)
+  subtotalSAR        Int
+  discountSAR        Int
+  totalSAR           Int
+  clientSubtotalSAR  Int?
+  clientDiscountSAR  Int?
+  clientTotalSAR     Int?
+  customerFullName   String
+  customerPhone      String
+  customerEmail      String?
+  customerNotes      String?
+  source             String   @default("web_checkout")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  items              OrderItem[]
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  lineType        String  // service | calculator | bundle
+  serviceId       String?
+  packageId       String?
+  bundleId        String?
+  addonIdsJson    String  @default("[]")
+  quantity        Int     @default(1)
+  detailsJson     String  @default("{}")
+  calculatorJson  String?
+  serviceTitle    String?
+  selectedOption  String?
+  selectedAddonsJson String @default("[]")
+  clientUnitPriceSAR Int?
+  serverUnitPriceSAR Int
+  lineTotalSAR    Int
+  notes           String?
+  image           String?
+
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  service         Service? @relation(fields: [serviceId], references: [id])
+  package         ServicePackage? @relation(fields: [packageId], references: [id])
+  bundle          Bundle? @relation(fields: [bundleId], references: [id])
+}

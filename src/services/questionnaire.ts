@@ -1,0 +1,124 @@
+/**
+ * Server-side FormDefinition v2 questionnaire validation.
+ * Mirrors storefront rules in src/lib/form-schema.ts — do not trust client validation.
+ */
+
+export type FormValues = Record<string, string | string[] | 'yes' | 'no'>;
+
+type FormFieldDef = {
+  id: string;
+  type: string;
+  label: string;
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+  showIf?: { field: string; equals: string | string[] };
+};
+
+type FormDefinition = {
+  version: number;
+  sections: Array<{ fields: FormFieldDef[] }>;
+};
+
+function isFormDefinitionV2(value: unknown): value is FormDefinition {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    (value as FormDefinition).version === 2 &&
+    Array.isArray((value as FormDefinition).sections)
+  );
+}
+
+function isFieldVisible(field: FormFieldDef, values: FormValues): boolean {
+  if (!field.showIf) return true;
+  const current = values[field.showIf.field];
+  const equals = field.showIf.equals;
+  if (Array.isArray(equals)) return equals.includes(String(current));
+  return String(current) === String(equals);
+}
+
+function isEmpty(field: FormFieldDef, value: FormValues[string] | undefined): boolean {
+  if (field.type === 'multichip' || field.type === 'file') {
+    return !Array.isArray(value) || value.length === 0;
+  }
+  if (field.type === 'url_list') {
+    return !Array.isArray(value) || value.filter(Boolean).length === 0;
+  }
+  if (field.type === 'yesno') return value !== 'yes' && value !== 'no';
+  return !String(value ?? '').trim();
+}
+
+function validateFieldType(field: FormFieldDef, value: FormValues[string] | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  switch (field.type) {
+    case 'yesno':
+      if (value !== 'yes' && value !== 'no') {
+        return `Invalid yesno for ${field.id}`;
+      }
+      break;
+    case 'select': {
+      if (!field.options?.length) break;
+      const allowed = new Set(field.options.map((o) => o.value));
+      if (!allowed.has(String(value))) {
+        return `Invalid select value for ${field.id}`;
+      }
+      break;
+    }
+    case 'multichip': {
+      if (!Array.isArray(value)) return `Expected array for ${field.id}`;
+      if (field.options?.length) {
+        const allowed = new Set(field.options.map((o) => o.value));
+        for (const v of value) {
+          if (!allowed.has(String(v))) return `Invalid multichip value for ${field.id}`;
+        }
+      }
+      break;
+    }
+    case 'url_list':
+    case 'file':
+      if (!Array.isArray(value)) return `Expected array for ${field.id}`;
+      break;
+    case 'text':
+    case 'textarea':
+      if (typeof value !== 'string' && typeof value !== 'number') {
+        return `Expected string for ${field.id}`;
+      }
+      break;
+    default:
+      break;
+  }
+  return null;
+}
+
+export function validateQuestionnaireAnswers(
+  schemaJson: unknown,
+  answers: unknown
+): { valid: true } | { valid: false; message: string } {
+  if (!isFormDefinitionV2(schemaJson)) {
+    // No v2 schema → nothing to enforce beyond presence of an object
+    return { valid: true };
+  }
+
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+    return { valid: false, message: 'Questionnaire answers required' };
+  }
+
+  const values = answers as FormValues;
+
+  for (const section of schemaJson.sections) {
+    for (const field of section.fields) {
+      if (!isFieldVisible(field, values)) continue;
+
+      const typeErr = validateFieldType(field, values[field.id]);
+      if (typeErr) return { valid: false, message: typeErr };
+
+      if (field.required && isEmpty(field, values[field.id])) {
+        return {
+          valid: false,
+          message: `Missing required field: ${field.label} (${field.id})`,
+        };
+      }
+    }
+  }
+
+  return { valid: true };
+}
