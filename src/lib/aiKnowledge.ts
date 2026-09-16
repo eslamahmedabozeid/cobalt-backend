@@ -139,12 +139,22 @@ export async function buildStoreKnowledge(): Promise<string> {
   }
 
   lines.push('');
+  lines.push('## الموقع الرسمي');
+  lines.push(
+    `الرابط الرسمي الوحيد للمتجر: ${process.env.PUBLIC_SITE_URL || 'http://cobalt-db.com/'}`
+  );
+  lines.push('لا تذكر أي رابط موقع آخر أبداً (مثل cobalt.com.sa أو أي نطاق مخترع).');
+
+  lines.push('');
   lines.push('## قواعد الإجابة');
-  lines.push('- أجب بالعربية الفصحى الواضحة والودية.');
-  lines.push('- اعتمد فقط على المعلومات أعلاه. لا تختلق أسعاراً أو خدمات غير موجودة.');
+  lines.push('- أجب بالعربية الواضحة والودية.');
+  lines.push('- اعتمد فقط على المعلومات أعلاه. لا تختلق أسعاراً أو خدمات أو روابط غير موجودة.');
+  lines.push('- لا تستخدم HTML أبداً (مثل br أو table أو div). لا تكتب وسوم مثل <br>.');
+  lines.push('- لا تستخدم جداول Markdown المعقدة. استخدم نقاطاً وقوائم نصية بسيطة فقط.');
+  lines.push('- لا تذكر رابط الموقع الرسمي إلا إذا سأل العميل صراحة عن رابط الموقع أو أين يجد المتجر.');
   lines.push('- إذا لم تجد المعلومة، قل ذلك واقترح التواصل عبر واتساب.');
-  lines.push('- شجّع العميل على الطلب من المتجر أو استخدام الحاسبة عند الحاجة.');
-  lines.push('- كن مختصراً ومفيداً (3–8 جمل عادة).');
+  lines.push('- عند شرح الشراء: اختر الخدمة من قسم الخدمات، اختر الباقة، أضف للسلة أو اطلب عبر واتساب، ثم أكمل البيانات.');
+  lines.push('- كن واضحاً ومنظماً، ويمكنك الإطالة قليلاً عند سؤال شامل عن كل الخدمات.');
 
   let text = lines.join('\n');
   // Keep prompt within free-model context limits
@@ -152,6 +162,66 @@ export async function buildStoreKnowledge(): Promise<string> {
   if (text.length > maxChars) {
     text = `${text.slice(0, maxChars)}\n\n[تم اختصار جزء من المعرفة لحدود النموذج]`;
   }
+  return text;
+}
+
+/** True when the customer explicitly asks for the store website / URL. */
+export function questionAsksForSiteUrl(question: string): boolean {
+  const q = String(question || '').toLowerCase();
+  return /رابط|موقعكم|الموقع|website|url|لينك|link|وين الموقع|أين الموقع|ازاي اوصل|كيف اوصل للمتجر|عنوان الموقع/.test(
+    q
+  );
+}
+
+/** Clean model output for chat UI (plain text only). */
+export function sanitizeAiAnswer(raw: string, opts?: { allowSiteUrl?: boolean }): string {
+  let text = String(raw || '');
+  // Convert common HTML breaks/paragraphs to newlines before stripping tags
+  text = text
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/\s*p\s*>/gi, '\n')
+    .replace(/<\/\s*div\s*>/gi, '\n')
+    .replace(/<\/\s*li\s*>/gi, '\n')
+    .replace(/<\/\s*tr\s*>/gi, '\n')
+    .replace(/<\/\s*h[1-6]\s*>/gi, '\n');
+  // Strip remaining HTML tags
+  text = text.replace(/<\/?[^>]+>/g, '');
+  // Decode a few common entities
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'");
+
+  // Always remove wrong/hallucinated Cobalt domains
+  text = text.replace(/https?:\/\/(?:www\.)?cobalt\.com\.sa\/?/gi, '');
+  text = text.replace(/(?:www\.)?cobalt\.com\.sa/gi, '');
+  text = text.replace(/https?:\/\/(?![^\s]*cobalt-db\.com)[^\s]*cobalt[^\s]*/gi, '');
+
+  const official = (process.env.PUBLIC_SITE_URL || 'http://cobalt-db.com/').trim();
+  if (!opts?.allowSiteUrl) {
+    // Do not share the main site URL unless the client asked for it
+    text = text.replace(/https?:\/\/(?:www\.)?cobalt-db\.com\/?/gi, '');
+    text = text.replace(/(?:www\.)?cobalt-db\.com\/?/gi, '');
+    if (official) {
+      const escaped = official.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      text = text.replace(new RegExp(escaped, 'gi'), '');
+    }
+  } else {
+    // If they asked, replace any remaining fake domains with the official URL
+    text = text.replace(/https?:\/\/(?:www\.)?cobalt\.com\.sa\/?/gi, official);
+  }
+
+  // Collapse excess blank lines / spaces left after stripping URLs
+  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  text = text.replace(/ {2,}/g, ' ');
+  // Clean leftover "افتح الرابط:" / "زيارة الموقع" lines that became empty
+  text = text
+    .replace(/^[^\n]*(?:الرابط|زيارة الموقع|افتح الرابط)[^\n]*:\s*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return text;
 }
 

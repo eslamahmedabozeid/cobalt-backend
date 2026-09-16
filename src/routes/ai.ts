@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { ok, fail } from '../utils/response';
-import { buildStoreKnowledge, offlineAnswer } from '../lib/aiKnowledge';
+import {
+  buildStoreKnowledge,
+  offlineAnswer,
+  questionAsksForSiteUrl,
+  sanitizeAiAnswer,
+} from '../lib/aiKnowledge';
 import { askFreeModel } from '../lib/aiProvider';
 
 const router = Router();
@@ -75,16 +80,26 @@ router.post('/ai/ask', async (req, res) => {
       .filter((h: { content: string }) => h.content);
 
     const knowledge = await getKnowledge();
+    const siteUrl = process.env.PUBLIC_SITE_URL || 'http://cobalt-db.com/';
     const systemPrompt = `أنت مساعد مبيعات ودعم لمتجر كوبالت للخدمات الرقمية.
 مهمتك مساعدة العملاء بالإجابة من قاعدة المعرفة فقط.
+
+قواعد صارمة:
+1) لا تستخدم HTML أو وسوم مثل <br> أو <table>. اكتب نصاً عادياً فقط مع أسطر ونقاط.
+2) لا تختلق روابط مواقع. الرابط الرسمي الوحيد إن لزم: ${siteUrl}
+3) لا تذكر رابط الموقع إلا إذا سأل العميل صراحة عن رابط المتجر أو أين يجده.
+4) لا تذكر cobalt.com.sa أو أي نطاق آخر غير الرابط الرسمي.
 
 ${knowledge}`;
 
     const result = await askFreeModel(systemPrompt, question, history);
-    const answer =
+    const rawAnswer =
       result.provider === 'offline' || !result.answer
         ? offlineAnswer(question, knowledge)
         : result.answer;
+    const answer = sanitizeAiAnswer(rawAnswer, {
+      allowSiteUrl: questionAsksForSiteUrl(question),
+    });
 
     return ok(res, {
       answer,
