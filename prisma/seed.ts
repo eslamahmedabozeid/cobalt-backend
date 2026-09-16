@@ -18,6 +18,13 @@ import {
   FOOTER_DESC,
   SUPPORT_BLURB,
 } from './seedCmsContent';
+import {
+  EDITOR_ROLE_ID,
+  SUPER_ADMIN_ROLE_ID,
+  VIEWER_ROLE_ID,
+  editorPermissions,
+  viewerPermissions,
+} from '../src/lib/permissions';
 
 const prisma = new PrismaClient();
 
@@ -26,13 +33,72 @@ async function main() {
   const password = process.env.ADMIN_PASSWORD || 'Admin123!';
   const name = process.env.ADMIN_NAME || 'Cobalt Admin';
 
+  await prisma.role.upsert({
+    where: { id: SUPER_ADMIN_ROLE_ID },
+    update: {
+      slug: 'super-admin',
+      name: 'مدير النظام',
+      description: 'صلاحيات كاملة على كل الأقسام والعمليات',
+      isSystem: true,
+      permissions: '*',
+    },
+    create: {
+      id: SUPER_ADMIN_ROLE_ID,
+      slug: 'super-admin',
+      name: 'مدير النظام',
+      description: 'صلاحيات كاملة على كل الأقسام والعمليات',
+      isSystem: true,
+      permissions: '*',
+    },
+  });
+
+  await prisma.role.upsert({
+    where: { id: EDITOR_ROLE_ID },
+    update: {
+      slug: 'editor',
+      name: 'محرر',
+      description: 'إدارة المحتوى والمتجر بدون إدارة المستخدمين والأدوار',
+      isSystem: true,
+      permissions: JSON.stringify(editorPermissions()),
+    },
+    create: {
+      id: EDITOR_ROLE_ID,
+      slug: 'editor',
+      name: 'محرر',
+      description: 'إدارة المحتوى والمتجر بدون إدارة المستخدمين والأدوار',
+      isSystem: true,
+      permissions: JSON.stringify(editorPermissions()),
+    },
+  });
+
+  await prisma.role.upsert({
+    where: { id: VIEWER_ROLE_ID },
+    update: {
+      slug: 'viewer',
+      name: 'مشاهد',
+      description: 'عرض فقط بدون إضافة أو تعديل أو حذف',
+      isSystem: true,
+      permissions: JSON.stringify(viewerPermissions()),
+    },
+    create: {
+      id: VIEWER_ROLE_ID,
+      slug: 'viewer',
+      name: 'مشاهد',
+      description: 'عرض فقط بدون إضافة أو تعديل أو حذف',
+      isSystem: true,
+      permissions: JSON.stringify(viewerPermissions()),
+    },
+  });
+
   await prisma.adminUser.upsert({
     where: { email },
-    update: {},
+    update: { roleId: SUPER_ADMIN_ROLE_ID, active: true },
     create: {
       email,
       name,
       passwordHash: await bcrypt.hash(password, 10),
+      roleId: SUPER_ADMIN_ROLE_ID,
+      active: true,
     },
   });
 

@@ -3,54 +3,65 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ok, fail } from '../utils/response';
-import { requireAdmin, AuthRequest } from '../middleware/auth';
+import { requireAdmin, requirePermission, serializeAdmin, AuthRequest } from '../middleware/auth';
+import { RESOURCES, SUPER_ADMIN_SLUG, RESERVED_ROLE_SLUGS, hasPermission, sanitizePermissions } from '../lib/permissions';
 
 const router = Router();
+
+function publicAdmin(admin: ReturnType<typeof serializeAdmin>) {
+  return admin;
+}
 
 router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return fail(res, 'Email and password required', 400);
-  const user = await prisma.adminUser.findUnique({ where: { email: String(email).toLowerCase() } });
-  if (!user) return fail(res, 'Invalid credentials', 401, undefined, 'UNAUTHORIZED');
+  const user = await prisma.adminUser.findUnique({
+    where: { email: String(email).toLowerCase() },
+    include: { role: true },
+  });
+  if (!user || !user.active) return fail(res, 'Invalid credentials', 401, undefined, 'UNAUTHORIZED');
   const valid = await bcrypt.compare(String(password), user.passwordHash);
   if (!valid) return fail(res, 'Invalid credentials', 401, undefined, 'UNAUTHORIZED');
   const token = jwt.sign(
     { id: user.id, email: user.email },
     process.env.JWT_SECRET || 'secret',
-    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as string | number }
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') } as jwt.SignOptions
   );
   return ok(res, {
     token,
-    admin: { id: user.id, email: user.email, name: user.name },
+    admin: publicAdmin(serializeAdmin(user)),
   });
 });
 
 router.post('/auth/logout', requireAdmin, (_req, res) => ok(res, { loggedOut: true }));
 
 router.get('/me', requireAdmin, async (req: AuthRequest, res) => {
-  const user = await prisma.adminUser.findUnique({ where: { id: req.admin!.id } });
-  if (!user) return fail(res, 'Not found', 404);
-  return ok(res, { id: user.id, email: user.email, name: user.name });
+  return ok(res, publicAdmin(req.admin!));
+});
+
+router.get('/permission-catalog', requireAdmin, requirePermission('roles', 'read'), (_req, res) => {
+  return ok(res, { resources: RESOURCES });
 });
 
 // ---- generic CRUD helpers ----
 
-function crud(model: keyof typeof prisma, options?: { orderBy?: object }) {
+function crud(model: keyof typeof prisma, options: { orderBy?: object; resource: string }) {
   const r = Router();
   const db = prisma[model] as any;
+  const resource = options.resource;
 
-  r.get('/', requireAdmin, async (_req, res) => {
-    const items = await db.findMany({ orderBy: options?.orderBy || { createdAt: 'desc' } });
+  r.get('/', requireAdmin, requirePermission(resource, 'read'), async (_req, res) => {
+    const items = await db.findMany({ orderBy: options.orderBy || { createdAt: 'desc' } });
     return ok(res, items);
   });
 
-  r.get('/:id', requireAdmin, async (req, res) => {
+  r.get('/:id', requireAdmin, requirePermission(resource, 'read'), async (req, res) => {
     const item = await db.findUnique({ where: { id: req.params.id } });
     if (!item) return fail(res, 'Not found', 404);
     return ok(res, item);
   });
 
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission(resource, 'create'), async (req, res) => {
     try {
       const item = await db.create({ data: req.body });
       return ok(res, item, 201);
@@ -59,7 +70,7 @@ function crud(model: keyof typeof prisma, options?: { orderBy?: object }) {
     }
   });
 
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission(resource, 'update'), async (req, res) => {
     try {
       const item = await db.update({ where: { id: req.params.id }, data: req.body });
       return ok(res, item);
@@ -68,7 +79,7 @@ function crud(model: keyof typeof prisma, options?: { orderBy?: object }) {
     }
   });
 
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission(resource, 'delete'), async (req, res) => {
     try {
       await db.delete({ where: { id: req.params.id } });
       return ok(res, { deleted: true });
@@ -82,14 +93,14 @@ function crud(model: keyof typeof prisma, options?: { orderBy?: object }) {
 
 router.use('/services', (() => {
   const r = Router();
-  r.get('/', requireAdmin, async (_req, res) => {
+  r.get('/', requireAdmin, requirePermission('services', 'read'), async (_req, res) => {
     const items = await prisma.service.findMany({
       orderBy: { sortOrder: 'asc' },
       include: { packages: true, addons: true, requirementSchema: true },
     });
     return ok(res, items);
   });
-  r.get('/:id', requireAdmin, async (req, res) => {
+  r.get('/:id', requireAdmin, requirePermission('services', 'read'), async (req, res) => {
     const item = await prisma.service.findUnique({
       where: { id: req.params.id },
       include: { packages: true, addons: true, requirementSchema: true },
@@ -97,7 +108,7 @@ router.use('/services', (() => {
     if (!item) return fail(res, 'Not found', 404);
     return ok(res, item);
   });
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission('services', 'create'), async (req, res) => {
     try {
       const { packages, addons, requirementSchema, deliverables, ...rest } = req.body;
       const item = await prisma.service.create({
@@ -163,7 +174,7 @@ router.use('/services', (() => {
       return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
     }
   });
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     try {
       const { packages, addons, requirementSchema, deliverables, ...rest } = req.body;
       const data: Record<string, unknown> = { ...rest };
@@ -177,7 +188,7 @@ router.use('/services', (() => {
       return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
     }
   });
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission('services', 'delete'), async (req, res) => {
     await prisma.service.delete({ where: { id: req.params.id } });
     return ok(res, { deleted: true });
   });
@@ -186,25 +197,25 @@ router.use('/services', (() => {
 
 router.use('/packages', (() => {
   const r = Router();
-  r.get('/', requireAdmin, async (req, res) => {
+  r.get('/', requireAdmin, requirePermission('services', 'read'), async (req, res) => {
     const where = req.query.serviceId ? { serviceId: String(req.query.serviceId) } : {};
     return ok(res, await prisma.servicePackage.findMany({ where, orderBy: { sortOrder: 'asc' } }));
   });
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     try {
       return ok(res, await prisma.servicePackage.create({ data: req.body }), 201);
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
     }
   });
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     try {
       return ok(res, await prisma.servicePackage.update({ where: { id: req.params.id }, data: req.body }));
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
     }
   });
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     await prisma.servicePackage.delete({ where: { id: req.params.id } });
     return ok(res, { deleted: true });
   });
@@ -213,32 +224,32 @@ router.use('/packages', (() => {
 
 router.use('/addons', (() => {
   const r = Router();
-  r.get('/', requireAdmin, async (req, res) => {
+  r.get('/', requireAdmin, requirePermission('services', 'read'), async (req, res) => {
     const where = req.query.serviceId ? { serviceId: String(req.query.serviceId) } : {};
     return ok(res, await prisma.serviceAddon.findMany({ where, orderBy: { sortOrder: 'asc' } }));
   });
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     try {
       return ok(res, await prisma.serviceAddon.create({ data: req.body }), 201);
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
     }
   });
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     try {
       return ok(res, await prisma.serviceAddon.update({ where: { id: req.params.id }, data: req.body }));
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
     }
   });
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
     await prisma.serviceAddon.delete({ where: { id: req.params.id } });
     return ok(res, { deleted: true });
   });
   return r;
 })());
 
-router.put('/requirement-schemas/:serviceId', requireAdmin, async (req, res) => {
+router.put('/requirement-schemas/:serviceId', requireAdmin, requirePermission('services', 'update'), async (req, res) => {
   try {
     const schemaJson =
       typeof req.body.schemaJson === 'string'
@@ -255,16 +266,16 @@ router.put('/requirement-schemas/:serviceId', requireAdmin, async (req, res) => 
   }
 });
 
-router.use('/bundles', crud('bundle', { orderBy: { sortOrder: 'asc' } }));
-router.use('/coupons', crud('coupon', { orderBy: { createdAt: 'desc' } }));
-router.use('/hero-slides', crud('heroSlide', { orderBy: { sortOrder: 'asc' } }));
+router.use('/bundles', crud('bundle', { orderBy: { sortOrder: 'asc' }, resource: 'bundles' }));
+router.use('/coupons', crud('coupon', { orderBy: { createdAt: 'desc' }, resource: 'coupons' }));
+router.use('/hero-slides', crud('heroSlide', { orderBy: { sortOrder: 'asc' }, resource: 'hero-slides' }));
 router.use('/portfolio', (() => {
   const r = Router();
-  r.get('/', requireAdmin, async (_req, res) => {
+  r.get('/', requireAdmin, requirePermission('portfolio', 'read'), async (_req, res) => {
     const items = await prisma.portfolioItem.findMany({ orderBy: { sortOrder: 'asc' } });
     return ok(res, items);
   });
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission('portfolio', 'create'), async (req, res) => {
     const { features, ...rest } = req.body;
     const item = await prisma.portfolioItem.create({
       data: {
@@ -274,7 +285,7 @@ router.use('/portfolio', (() => {
     });
     return ok(res, item, 201);
   });
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission('portfolio', 'update'), async (req, res) => {
     const { features, ...rest } = req.body;
     const data: Record<string, unknown> = { ...rest };
     if (features !== undefined) {
@@ -283,22 +294,22 @@ router.use('/portfolio', (() => {
     const item = await prisma.portfolioItem.update({ where: { id: req.params.id }, data });
     return ok(res, item);
   });
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission('portfolio', 'delete'), async (req, res) => {
     await prisma.portfolioItem.delete({ where: { id: req.params.id } });
     return ok(res, { deleted: true });
   });
   return r;
 })());
-router.use('/testimonials', crud('testimonial', { orderBy: { sortOrder: 'asc' } }));
-router.use('/faqs', crud('faq', { orderBy: { sortOrder: 'asc' } }));
-router.use('/currencies', crud('currency', { orderBy: { code: 'asc' } }));
+router.use('/testimonials', crud('testimonial', { orderBy: { sortOrder: 'asc' }, resource: 'testimonials' }));
+router.use('/faqs', crud('faq', { orderBy: { sortOrder: 'asc' }, resource: 'faqs' }));
+router.use('/currencies', crud('currency', { orderBy: { code: 'asc' }, resource: 'currencies' }));
 
-router.get('/calculator', requireAdmin, async (_req, res) => {
+router.get('/calculator', requireAdmin, requirePermission('calculator', 'read'), async (_req, res) => {
   const calc = await prisma.calculatorConfig.findUnique({ where: { id: 'default' } });
   return ok(res, calc);
 });
 
-router.put('/calculator', requireAdmin, async (req, res) => {
+router.put('/calculator', requireAdmin, requirePermission('calculator', 'update'), async (req, res) => {
   const calc = await prisma.calculatorConfig.upsert({
     where: { id: 'default' },
     create: { id: 'default', ...req.body },
@@ -307,12 +318,12 @@ router.put('/calculator', requireAdmin, async (req, res) => {
   return ok(res, calc);
 });
 
-router.get('/site-settings', requireAdmin, async (_req, res) => {
+router.get('/site-settings', requireAdmin, requirePermission('settings', 'read'), async (_req, res) => {
   const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });
   return ok(res, settings);
 });
 
-router.put('/site-settings', requireAdmin, async (req, res) => {
+router.put('/site-settings', requireAdmin, requirePermission('settings', 'update'), async (req, res) => {
   try {
     const { paymentBadges, ...rest } = req.body;
     const data: Record<string, unknown> = { ...rest };
@@ -350,7 +361,7 @@ router.put('/site-settings', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/orders', requireAdmin, async (_req, res) => {
+router.get('/orders', requireAdmin, requirePermission('orders', 'read'), async (_req, res) => {
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: 'desc' },
     include: { items: true },
@@ -358,7 +369,7 @@ router.get('/orders', requireAdmin, async (_req, res) => {
   return ok(res, orders);
 });
 
-router.get('/orders/:id', requireAdmin, async (req, res) => {
+router.get('/orders/:id', requireAdmin, requirePermission('orders', 'read'), async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },
     include: { items: true },
@@ -367,7 +378,7 @@ router.get('/orders/:id', requireAdmin, async (req, res) => {
   return ok(res, order);
 });
 
-router.patch('/orders/:id', requireAdmin, async (req, res) => {
+router.patch('/orders/:id', requireAdmin, requirePermission('orders', 'update'), async (req, res) => {
   const { status, paymentStatus } = req.body || {};
   const order = await prisma.order.update({
     where: { id: req.params.id },
@@ -380,7 +391,7 @@ router.patch('/orders/:id', requireAdmin, async (req, res) => {
   return ok(res, order);
 });
 
-router.get('/dashboard', requireAdmin, async (_req, res) => {
+router.get('/dashboard', requireAdmin, requirePermission('dashboard', 'read'), async (_req, res) => {
   const [orders, services, coupons] = await Promise.all([
     prisma.order.count(),
     prisma.service.count({ where: { active: true } }),
@@ -397,6 +408,256 @@ router.get('/dashboard', requireAdmin, async (_req, res) => {
     revenueSAR: revenue._sum.totalSAR || 0,
     recentOrders: recent,
   });
+});
+
+function rolePublic(role: { id: string; slug: string; name: string; description: string; isSystem: boolean; permissions: string; createdAt: Date; updatedAt: Date; _count?: { users: number } }) {
+  let permissions: '*' | Record<string, unknown> = {};
+  if (role.permissions === '*') {
+    permissions = '*';
+  } else {
+    try {
+      permissions = JSON.parse(role.permissions || '{}');
+    } catch {
+      permissions = {};
+    }
+  }
+  return {
+    id: role.id,
+    slug: role.slug,
+    name: role.name,
+    description: role.description,
+    isSystem: role.isSystem,
+    permissions,
+    usersCount: role._count?.users ?? undefined,
+    createdAt: role.createdAt,
+    updatedAt: role.updatedAt,
+  };
+}
+
+function normalizeRoleSlug(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function countSuperAdmins(): Promise<number> {
+  return prisma.adminUser.count({
+    where: { active: true, role: { slug: SUPER_ADMIN_SLUG } },
+  });
+}
+
+router.get('/roles', requireAdmin, (req: AuthRequest, res, next) => {
+  const admin = req.admin!;
+  const allowed =
+    admin.isSuperAdmin ||
+    hasPermission(admin.permissions, 'roles', 'read', admin.isSuperAdmin) ||
+    hasPermission(admin.permissions, 'users', 'read', admin.isSuperAdmin);
+  if (!allowed) return fail(res, 'ليس لديك صلاحية لتنفيذ هذا الإجراء', 403, undefined, 'FORBIDDEN');
+  next();
+}, async (_req, res) => {
+  const roles = await prisma.role.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: { _count: { select: { users: true } } },
+  });
+  return ok(res, roles.map(rolePublic));
+});
+
+router.post('/roles', requireAdmin, requirePermission('roles', 'create'), async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return fail(res, 'اسم الدور مطلوب', 400);
+    const slug = normalizeRoleSlug(req.body.slug || name);
+    if (!slug) return fail(res, 'معرف الدور غير صالح', 400);
+    if (RESERVED_ROLE_SLUGS.has(slug)) {
+      return fail(res, 'هذا المعرف محجوز لأدوار النظام', 400);
+    }
+    const role = await prisma.role.create({
+      data: {
+        name,
+        slug,
+        description: String(req.body.description || ''),
+        isSystem: false,
+        permissions: sanitizePermissions(req.body.permissions),
+      },
+    });
+    return ok(res, rolePublic(role), 201);
+  } catch (e) {
+    return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
+  }
+});
+
+router.put('/roles/:id', requireAdmin, requirePermission('roles', 'update'), async (req, res) => {
+  try {
+    const existing = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!existing) return fail(res, 'Not found', 404);
+    const data: Record<string, unknown> = {};
+    if (req.body.name != null) data.name = String(req.body.name).trim();
+    if (req.body.description != null) data.description = String(req.body.description);
+    if (req.body.permissions != null) {
+      data.permissions = existing.slug === SUPER_ADMIN_SLUG ? '*' : sanitizePermissions(req.body.permissions);
+    }
+    if (req.body.slug != null && !existing.isSystem) {
+      const slug = normalizeRoleSlug(req.body.slug);
+      if (!slug) return fail(res, 'معرف الدور غير صالح', 400);
+      if (RESERVED_ROLE_SLUGS.has(slug)) {
+        return fail(res, 'هذا المعرف محجوز لأدوار النظام', 400);
+      }
+      data.slug = slug;
+    }
+    const role = await prisma.role.update({ where: { id: req.params.id }, data });
+    return ok(res, rolePublic(role));
+  } catch (e) {
+    return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
+  }
+});
+
+router.delete('/roles/:id', requireAdmin, requirePermission('roles', 'delete'), async (req, res) => {
+  const existing = await prisma.role.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { users: true } } },
+  });
+  if (!existing) return fail(res, 'Not found', 404);
+  if (existing.isSystem) return fail(res, 'لا يمكن حذف دور نظام أساسي', 400);
+  if (existing._count.users > 0) {
+    return fail(res, 'لا يمكن حذف دور مرتبط بمستخدمين. أعد تعيينهم أولاً', 400);
+  }
+  await prisma.role.delete({ where: { id: req.params.id } });
+  return ok(res, { deleted: true });
+});
+
+function userPublic(user: {
+  id: string;
+  email: string;
+  name: string;
+  active: boolean;
+  roleId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  role: { id: string; slug: string; name: string };
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    active: user.active,
+    roleId: user.roleId,
+    roleSlug: user.role.slug,
+    roleName: user.role.name,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+
+router.get('/users', requireAdmin, requirePermission('users', 'read'), async (_req, res) => {
+  const users = await prisma.adminUser.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: { role: true },
+  });
+  return ok(res, users.map(userPublic));
+});
+
+router.post('/users', requireAdmin, requirePermission('users', 'create'), async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim();
+    const password = String(req.body.password || '');
+    const roleId = String(req.body.roleId || '');
+    if (!email || !name || !password || !roleId) {
+      return fail(res, 'الاسم والبريد وكلمة المرور والدور مطلوبة', 400);
+    }
+    if (password.length < 8) return fail(res, 'كلمة المرور يجب ألا تقل عن 8 أحرف', 400);
+    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    if (!role) return fail(res, 'الدور غير موجود', 400);
+    const user = await prisma.adminUser.create({
+      data: {
+        email,
+        name,
+        passwordHash: await bcrypt.hash(password, 10),
+        roleId,
+        active: req.body.active !== false,
+      },
+      include: { role: true },
+    });
+    return ok(res, userPublic(user), 201);
+  } catch (e) {
+    return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
+  }
+});
+
+router.put('/users/:id', requireAdmin, requirePermission('users', 'update'), async (req: AuthRequest, res) => {
+  try {
+    const existing = await prisma.adminUser.findUnique({
+      where: { id: req.params.id },
+      include: { role: true },
+    });
+    if (!existing) return fail(res, 'Not found', 404);
+    const data: Record<string, unknown> = {};
+    if (req.body.name != null) data.name = String(req.body.name).trim();
+    if (req.body.email != null) data.email = String(req.body.email).trim().toLowerCase();
+    if (req.body.active != null) {
+      if (req.params.id === req.admin!.id && req.body.active === false) {
+        return fail(res, 'لا يمكنك تعطيل حسابك الحالي', 400);
+      }
+      if (
+        existing.role.slug === SUPER_ADMIN_SLUG &&
+        existing.active &&
+        req.body.active === false &&
+        (await countSuperAdmins()) <= 1
+      ) {
+        return fail(res, 'لا يمكن تعطيل آخر مدير نظام نشط', 400);
+      }
+      data.active = Boolean(req.body.active);
+    }
+    if (req.body.roleId != null) {
+      const role = await prisma.role.findUnique({ where: { id: String(req.body.roleId) } });
+      if (!role) return fail(res, 'الدور غير موجود', 400);
+      if (
+        existing.role.slug === SUPER_ADMIN_SLUG &&
+        role.slug !== SUPER_ADMIN_SLUG &&
+        existing.active &&
+        (await countSuperAdmins()) <= 1
+      ) {
+        return fail(res, 'لا يمكن تغيير دور آخر مدير نظام نشط', 400);
+      }
+      data.roleId = role.id;
+    }
+    if (req.body.password) {
+      if (String(req.body.password).length < 8) {
+        return fail(res, 'كلمة المرور يجب ألا تقل عن 8 أحرف', 400);
+      }
+      data.passwordHash = await bcrypt.hash(String(req.body.password), 10);
+    }
+    const user = await prisma.adminUser.update({
+      where: { id: req.params.id },
+      data,
+      include: { role: true },
+    });
+    return ok(res, userPublic(user));
+  } catch (e) {
+    return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
+  }
+});
+
+router.delete('/users/:id', requireAdmin, requirePermission('users', 'delete'), async (req: AuthRequest, res) => {
+  if (req.params.id === req.admin!.id) {
+    return fail(res, 'لا يمكنك حذف حسابك الحالي', 400);
+  }
+  const existing = await prisma.adminUser.findUnique({
+    where: { id: req.params.id },
+    include: { role: true },
+  });
+  if (!existing) return fail(res, 'Not found', 404);
+  if (
+    existing.role.slug === SUPER_ADMIN_SLUG &&
+    existing.active &&
+    (await countSuperAdmins()) <= 1
+  ) {
+    return fail(res, 'لا يمكن حذف آخر مدير نظام نشط', 400);
+  }
+  await prisma.adminUser.delete({ where: { id: req.params.id } });
+  return ok(res, { deleted: true });
 });
 
 export default router;

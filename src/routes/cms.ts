@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { ok, fail } from '../utils/response';
-import { requireAdmin } from '../middleware/auth';
+import { requireAdmin, requirePermission, AuthRequest } from '../middleware/auth';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { ResourceKey, hasPermission } from '../lib/permissions';
 
 const router = Router();
 
@@ -15,21 +16,25 @@ function listActive(model: any, orderBy: object = { sortOrder: 'asc' }) {
   };
 }
 
-function adminCrud(modelName: keyof typeof prisma, orderBy: object = { sortOrder: 'asc' }) {
+function adminCrud(
+  modelName: keyof typeof prisma,
+  orderBy: object = { sortOrder: 'asc' },
+  resource: ResourceKey = 'homepage'
+) {
   const r = Router();
   const db = prisma[modelName] as any;
 
-  r.get('/', requireAdmin, async (_req, res) => {
+  r.get('/', requireAdmin, requirePermission(resource, 'read'), async (_req, res) => {
     return ok(res, await db.findMany({ orderBy }));
   });
 
-  r.get('/:id', requireAdmin, async (req, res) => {
+  r.get('/:id', requireAdmin, requirePermission(resource, 'read'), async (req, res) => {
     const item = await db.findUnique({ where: { id: req.params.id } });
     if (!item) return fail(res, 'Not found', 404);
     return ok(res, item);
   });
 
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission(resource, 'create'), async (req, res) => {
     try {
       return ok(res, await db.create({ data: req.body }), 201);
     } catch (e) {
@@ -37,7 +42,7 @@ function adminCrud(modelName: keyof typeof prisma, orderBy: object = { sortOrder
     }
   });
 
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission(resource, 'update'), async (req, res) => {
     try {
       return ok(res, await db.update({ where: { id: req.params.id }, data: req.body }));
     } catch (e) {
@@ -45,7 +50,7 @@ function adminCrud(modelName: keyof typeof prisma, orderBy: object = { sortOrder
     }
   });
 
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission(resource, 'delete'), async (req, res) => {
     try {
       await db.delete({ where: { id: req.params.id } });
       return ok(res, { deleted: true });
@@ -152,40 +157,40 @@ publicCmsRouter.get('/top-bar', async (_req, res) => {
 // —— Admin CMS CRUD ——
 export const adminCmsRouter = Router();
 
-adminCmsRouter.use('/feature-badges', adminCrud('featureBadge'));
-adminCmsRouter.use('/trust-stats', adminCrud('trustStat'));
-adminCmsRouter.use('/value-props', adminCrud('valuePropCard'));
-adminCmsRouter.use('/how-it-works', adminCrud('howItWorksStep'));
-adminCmsRouter.use('/process-steps', adminCrud('processStep'));
-adminCmsRouter.use('/guarantees', adminCrud('guaranteeCard'));
-adminCmsRouter.use('/nav', adminCrud('navItem'));
-adminCmsRouter.use('/footer-links', adminCrud('footerLink'));
+adminCmsRouter.use('/feature-badges', adminCrud('featureBadge', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/trust-stats', adminCrud('trustStat', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/value-props', adminCrud('valuePropCard', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/how-it-works', adminCrud('howItWorksStep', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/process-steps', adminCrud('processStep', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/guarantees', adminCrud('guaranteeCard', { sortOrder: 'asc' }, 'homepage'));
+adminCmsRouter.use('/nav', adminCrud('navItem', { sortOrder: 'asc' }, 'navigation'));
+adminCmsRouter.use('/footer-links', adminCrud('footerLink', { sortOrder: 'asc' }, 'footer-links'));
 adminCmsRouter.use('/categories', (() => {
   const r = Router();
   const db = prisma.category;
-  r.get('/', requireAdmin, async (_req, res) => {
+  r.get('/', requireAdmin, requirePermission('categories', 'read'), async (_req, res) => {
     return ok(res, await db.findMany({ orderBy: { sortOrder: 'asc' } }));
   });
-  r.get('/:id', requireAdmin, async (req, res) => {
+  r.get('/:id', requireAdmin, requirePermission('categories', 'read'), async (req, res) => {
     const item = await db.findUnique({ where: { id: req.params.id } });
     if (!item) return fail(res, 'Not found', 404);
     return ok(res, item);
   });
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireAdmin, requirePermission('categories', 'create'), async (req, res) => {
     try {
       return ok(res, await db.create({ data: req.body }), 201);
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Create failed', 400);
     }
   });
-  r.put('/:id', requireAdmin, async (req, res) => {
+  r.put('/:id', requireAdmin, requirePermission('categories', 'update'), async (req, res) => {
     try {
       return ok(res, await db.update({ where: { id: req.params.id }, data: req.body }));
     } catch (e) {
       return fail(res, e instanceof Error ? e.message : 'Update failed', 400);
     }
   });
-  r.delete('/:id', requireAdmin, async (req, res) => {
+  r.delete('/:id', requireAdmin, requirePermission('categories', 'delete'), async (req, res) => {
     const inUse = await prisma.service.count({ where: { category: req.params.id } });
     if (inUse > 0) {
       return fail(
@@ -205,9 +210,9 @@ adminCmsRouter.use('/categories', (() => {
   });
   return r;
 })());
-adminCmsRouter.use('/content-sections', adminCrud('contentSection', { id: 'asc' }));
+adminCmsRouter.use('/content-sections', adminCrud('contentSection', { id: 'asc' }, 'homepage'));
 
-adminCmsRouter.get('/comparison-columns', requireAdmin, async (_req, res) => {
+adminCmsRouter.get('/comparison-columns', requireAdmin, requirePermission('homepage', 'read'), async (_req, res) => {
   return ok(
     res,
     await prisma.comparisonColumn.findMany({
@@ -217,7 +222,7 @@ adminCmsRouter.get('/comparison-columns', requireAdmin, async (_req, res) => {
   );
 });
 
-adminCmsRouter.post('/comparison-columns', requireAdmin, async (req, res) => {
+adminCmsRouter.post('/comparison-columns', requireAdmin, requirePermission('homepage', 'create'), async (req, res) => {
   try {
     const { items, ...rest } = req.body;
     const col = await prisma.comparisonColumn.create({ data: rest });
@@ -227,7 +232,7 @@ adminCmsRouter.post('/comparison-columns', requireAdmin, async (req, res) => {
   }
 });
 
-adminCmsRouter.put('/comparison-columns/:id', requireAdmin, async (req, res) => {
+adminCmsRouter.put('/comparison-columns/:id', requireAdmin, requirePermission('homepage', 'update'), async (req, res) => {
   try {
     const { items, ...rest } = req.body;
     const col = await prisma.comparisonColumn.update({ where: { id: req.params.id }, data: rest });
@@ -237,12 +242,12 @@ adminCmsRouter.put('/comparison-columns/:id', requireAdmin, async (req, res) => 
   }
 });
 
-adminCmsRouter.delete('/comparison-columns/:id', requireAdmin, async (req, res) => {
+adminCmsRouter.delete('/comparison-columns/:id', requireAdmin, requirePermission('homepage', 'delete'), async (req, res) => {
   await prisma.comparisonColumn.delete({ where: { id: req.params.id } });
   return ok(res, { deleted: true });
 });
 
-adminCmsRouter.post('/comparison-items', requireAdmin, async (req, res) => {
+adminCmsRouter.post('/comparison-items', requireAdmin, requirePermission('homepage', 'update'), async (req, res) => {
   try {
     return ok(res, await prisma.comparisonItem.create({ data: req.body }), 201);
   } catch (e) {
@@ -250,7 +255,7 @@ adminCmsRouter.post('/comparison-items', requireAdmin, async (req, res) => {
   }
 });
 
-adminCmsRouter.put('/comparison-items/:id', requireAdmin, async (req, res) => {
+adminCmsRouter.put('/comparison-items/:id', requireAdmin, requirePermission('homepage', 'update'), async (req, res) => {
   try {
     return ok(res, await prisma.comparisonItem.update({ where: { id: req.params.id }, data: req.body }));
   } catch (e) {
@@ -258,16 +263,16 @@ adminCmsRouter.put('/comparison-items/:id', requireAdmin, async (req, res) => {
   }
 });
 
-adminCmsRouter.delete('/comparison-items/:id', requireAdmin, async (req, res) => {
+adminCmsRouter.delete('/comparison-items/:id', requireAdmin, requirePermission('homepage', 'update'), async (req, res) => {
   await prisma.comparisonItem.delete({ where: { id: req.params.id } });
   return ok(res, { deleted: true });
 });
 
-adminCmsRouter.get('/inquiries-cta', requireAdmin, async (_req, res) => {
+adminCmsRouter.get('/inquiries-cta', requireAdmin, requirePermission('homepage', 'read'), async (_req, res) => {
   return ok(res, await prisma.inquiriesCta.findUnique({ where: { id: 'default' } }));
 });
 
-adminCmsRouter.put('/inquiries-cta', requireAdmin, async (req, res) => {
+adminCmsRouter.put('/inquiries-cta', requireAdmin, requirePermission('homepage', 'update'), async (req, res) => {
   return ok(
     res,
     await prisma.inquiriesCta.upsert({
@@ -278,11 +283,11 @@ adminCmsRouter.put('/inquiries-cta', requireAdmin, async (req, res) => {
   );
 });
 
-adminCmsRouter.get('/top-bar', requireAdmin, async (_req, res) => {
+adminCmsRouter.get('/top-bar', requireAdmin, requirePermission('top-bar', 'read'), async (_req, res) => {
   return ok(res, await prisma.topBarPromo.findUnique({ where: { id: 'default' } }));
 });
 
-adminCmsRouter.put('/top-bar', requireAdmin, async (req, res) => {
+adminCmsRouter.put('/top-bar', requireAdmin, requirePermission('top-bar', 'update'), async (req, res) => {
   return ok(
     res,
     await prisma.topBarPromo.upsert({
@@ -318,11 +323,33 @@ const upload = multer({
   },
 });
 
-adminCmsRouter.get('/media', requireAdmin, async (_req, res) => {
+adminCmsRouter.get('/media', requireAdmin, requirePermission('media', 'read'), async (_req, res) => {
   return ok(res, await prisma.mediaAsset.findMany({ orderBy: { createdAt: 'desc' } }));
 });
 
-adminCmsRouter.post('/media', requireAdmin, (req, res) => {
+adminCmsRouter.post('/media', requireAdmin, (req: AuthRequest, res, next) => {
+  const admin = req.admin!;
+  if (hasPermission(admin.permissions, 'media', 'create', admin.isSuperAdmin)) {
+    return next();
+  }
+  // Image uploads from service/content forms should not require a separate media tab grant.
+  const writers = [
+    'services',
+    'bundles',
+    'hero-slides',
+    'portfolio',
+    'testimonials',
+    'settings',
+    'homepage',
+  ] as const;
+  const canWriteContent = writers.some(
+    (r) =>
+      hasPermission(admin.permissions, r, 'create', admin.isSuperAdmin) ||
+      hasPermission(admin.permissions, r, 'update', admin.isSuperAdmin)
+  );
+  if (canWriteContent) return next();
+  return fail(res, 'ليس لديك صلاحية لتنفيذ هذا الإجراء', 403, undefined, 'FORBIDDEN');
+}, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) return fail(res, err.message, 400);
     if (!req.file) return fail(res, 'No file uploaded', 400);
@@ -339,7 +366,7 @@ adminCmsRouter.post('/media', requireAdmin, (req, res) => {
   });
 });
 
-adminCmsRouter.delete('/media/:id', requireAdmin, async (req, res) => {
+adminCmsRouter.delete('/media/:id', requireAdmin, requirePermission('media', 'delete'), async (req, res) => {
   const asset = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
   if (!asset) return fail(res, 'Not found', 404);
   const filePath = path.join(uploadDir, path.basename(asset.url));
