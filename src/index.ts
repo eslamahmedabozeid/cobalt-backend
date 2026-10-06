@@ -42,8 +42,9 @@ if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process
   process.exit(1);
 }
 
-app.listen(port, () => {
-  console.log(`Cobalt backend listening on http://localhost:${port}`);
+const host = process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => {
+  console.log(`Cobalt backend listening on http://${host}:${port}`);
   const ai =
     process.env.GROQ_API_KEY?.trim()
       ? 'Groq (free)'
