@@ -367,6 +367,7 @@ model Order {
   updatedAt          DateTime @updatedAt
 
   items              OrderItem[]
+  files              OrderFile[]
 }
 
 model OrderItem {
@@ -393,4 +394,21 @@ model OrderItem {
   service         Service? @relation(fields: [serviceId], references: [id])
   package         ServicePackage? @relation(fields: [packageId], references: [id])
   bundle          Bundle? @relation(fields: [bundleId], references: [id])
+  files           OrderFile[]
+}
+
+model OrderFile {
+  id          String   @id @default(cuid())
+  orderId     String?
+  orderItemId String?
+  fieldId     String   @default("")
+  filename    String
+  storedName  String
+  url         String
+  mimeType    String
+  size        Int
+  createdAt   DateTime @default(now())
+
+  order     Order?     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
 }

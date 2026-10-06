@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ok, fail } from '../utils/response';
 import { requireAdmin, requirePermission, serializeAdmin, AuthRequest } from '../middleware/auth';
 import { RESOURCES, SUPER_ADMIN_SLUG, RESERVED_ROLE_SLUGS, hasPermission, sanitizePermissions } from '../lib/permissions';
+import { absoluteOrderFilePath } from '../lib/orderFiles';
 
 const router = Router();
 
@@ -364,7 +366,7 @@ router.put('/site-settings', requireAdmin, requirePermission('settings', 'update
 router.get('/orders', requireAdmin, requirePermission('orders', 'read'), async (_req, res) => {
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: 'desc' },
-    include: { items: true },
+    include: { items: true, files: true },
   });
   return ok(res, orders);
 });
@@ -372,11 +374,33 @@ router.get('/orders', requireAdmin, requirePermission('orders', 'read'), async (
 router.get('/orders/:id', requireAdmin, requirePermission('orders', 'read'), async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },
-    include: { items: true },
+    include: { items: true, files: true },
   });
   if (!order) return fail(res, 'Not found', 404);
   return ok(res, order);
 });
+
+router.get(
+  '/orders/:orderId/files/:fileId/download',
+  requireAdmin,
+  requirePermission('orders', 'read'),
+  async (req, res) => {
+    const file = await prisma.orderFile.findFirst({
+      where: { id: req.params.fileId, orderId: req.params.orderId },
+    });
+    if (!file) return fail(res, 'File not found', 404);
+
+    const abs = absoluteOrderFilePath(file.storedName);
+    if (!fs.existsSync(abs)) return fail(res, 'File missing on disk', 404);
+
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`
+    );
+    return res.sendFile(abs);
+  }
+);
 
 router.patch('/orders/:id', requireAdmin, requirePermission('orders', 'update'), async (req, res) => {
   const { status, paymentStatus } = req.body || {};

@@ -23,6 +23,13 @@ app.use((0, cors_1.default)({
     credentials: true,
 }));
 app.use(express_1.default.json({ limit: '2mb' }));
+// Media library is public; customer order files are admin-only via download route.
+app.use('/uploads', (req, res, next) => {
+    if (req.path.startsWith('/order-files/') || req.path.startsWith('order-files/')) {
+        return res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+    }
+    return next();
+});
 app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'uploads')));
 app.use('/api', public_1.default);
 app.use('/api', cms_1.publicCmsRouter);

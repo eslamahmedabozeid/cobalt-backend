@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ok, fail } from '../utils/response';
 import { createOrder, estimateOrder } from '../services/orders';
 import { applyCoupon } from '../services/pricing';
+import { orderFileUpload } from '../lib/orderFiles';
 
 const router = Router();
 
@@ -187,12 +188,47 @@ router.post('/orders', async (req, res) => {
         totalSAR: order.totalSAR,
         couponCode: order.couponCode,
         items: order.items,
+        files: order.files,
       },
       201
     );
   } catch (e) {
     return fail(res, e instanceof Error ? e.message : 'Order failed', 400, undefined, 'ORDER_ERROR');
   }
+});
+
+/** Public customer questionnaire file upload (images / PDF / Word). */
+router.post('/order-files', (req, res) => {
+  orderFileUpload.single('file')(req, res, async (err) => {
+    if (err) return fail(res, err.message, 400, undefined, 'UPLOAD_ERROR');
+    if (!req.file) return fail(res, 'No file uploaded', 400);
+
+    const fieldId = String(req.body?.fieldId || '');
+    const url = `/uploads/order-files/${req.file.filename}`;
+    const asset = await prisma.orderFile.create({
+      data: {
+        fieldId,
+        filename: req.file.originalname,
+        storedName: req.file.filename,
+        url,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      },
+    });
+
+    return ok(
+      res,
+      {
+        id: asset.id,
+        name: asset.filename,
+        url: asset.url,
+        size: asset.size,
+        mimeType: asset.mimeType,
+        fieldId: asset.fieldId,
+      },
+      201
+    );
+  });
 });
 
 export default router;

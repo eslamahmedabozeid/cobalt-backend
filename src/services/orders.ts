@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { applyCoupon, priceLine, OrderLineInput } from './pricing';
 import { validateQuestionnaireAnswers } from './questionnaire';
+import { collectFileRefsFromAnswers, linkOrderFiles } from '../lib/orderFiles';
 
 function orderNumber() {
   const d = new Date();
@@ -125,11 +126,24 @@ export async function createOrder(body: CreateOrderBody) {
           }),
         },
       },
-      include: { items: true },
+      include: { items: true, files: true },
     });
   });
 
-  return order;
+  // Link pre-uploaded questionnaire files to this order / line items
+  const itemFileMap = order.items.map((item, idx) => {
+    const refs = collectFileRefsFromAnswers(body.items[idx]?.answers);
+    return {
+      orderItemId: item.id,
+      fileIds: refs.map((r) => r.id),
+    };
+  });
+  await linkOrderFiles({ orderId: order.id, itemFileMap });
+
+  return prisma.order.findUniqueOrThrow({
+    where: { id: order.id },
+    include: { items: true, files: true },
+  });
 }
 
 export async function estimateOrder(body: CreateOrderBody) {

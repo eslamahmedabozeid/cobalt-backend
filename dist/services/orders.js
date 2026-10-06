@@ -5,6 +5,7 @@ exports.estimateOrder = estimateOrder;
 const prisma_1 = require("../lib/prisma");
 const pricing_1 = require("./pricing");
 const questionnaire_1 = require("./questionnaire");
+const orderFiles_1 = require("../lib/orderFiles");
 function orderNumber() {
     const d = new Date();
     const y = d.getFullYear().toString().slice(-2);
@@ -104,10 +105,22 @@ async function createOrder(body) {
                     }),
                 },
             },
-            include: { items: true },
+            include: { items: true, files: true },
         });
     });
-    return order;
+    // Link pre-uploaded questionnaire files to this order / line items
+    const itemFileMap = order.items.map((item, idx) => {
+        const refs = (0, orderFiles_1.collectFileRefsFromAnswers)(body.items[idx]?.answers);
+        return {
+            orderItemId: item.id,
+            fileIds: refs.map((r) => r.id),
+        };
+    });
+    await (0, orderFiles_1.linkOrderFiles)({ orderId: order.id, itemFileMap });
+    return prisma_1.prisma.order.findUniqueOrThrow({
+        where: { id: order.id },
+        include: { items: true, files: true },
+    });
 }
 async function estimateOrder(body) {
     if (!Array.isArray(body.items) || body.items.length === 0) {

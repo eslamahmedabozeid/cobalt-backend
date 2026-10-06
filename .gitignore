@@ -5,3 +5,6 @@ node_modules
 # Local SQLite databases
 /prisma/*.db
 /prisma/*.db-*
+
+# Uploaded media and order attachments
+/uploads/

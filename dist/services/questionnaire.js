@@ -5,6 +5,12 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateQuestionnaireAnswers = validateQuestionnaireAnswers;
+function isUploadedFileRef(value) {
+    return (!!value &&
+        typeof value === 'object' &&
+        typeof value.id === 'string' &&
+        !!value.id);
+}
 function isFormDefinitionV2(value) {
     return (!!value &&
         typeof value === 'object' &&
@@ -21,7 +27,10 @@ function isFieldVisible(field, values) {
     return String(current) === String(equals);
 }
 function isEmpty(field, value) {
-    if (field.type === 'multichip' || field.type === 'file') {
+    if (field.type === 'file') {
+        return !Array.isArray(value) || value.filter(isUploadedFileRef).length === 0;
+    }
+    if (field.type === 'multichip') {
         return !Array.isArray(value) || value.length === 0;
     }
     if (field.type === 'url_list') {
@@ -62,9 +71,20 @@ function validateFieldType(field, value) {
             break;
         }
         case 'url_list':
+            if (!Array.isArray(value))
+                return `Expected array for ${field.id}`;
+            break;
         case 'file':
             if (!Array.isArray(value))
                 return `Expected array for ${field.id}`;
+            for (const item of value) {
+                // Allow legacy filename strings during transition; prefer uploaded refs
+                if (typeof item === 'string')
+                    continue;
+                if (!isUploadedFileRef(item)) {
+                    return `Invalid uploaded file for ${field.id}`;
+                }
+            }
             break;
         case 'text':
         case 'textarea':

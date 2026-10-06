@@ -3,7 +3,18 @@
  * Mirrors storefront rules in src/lib/form-schema.ts — do not trust client validation.
  */
 
-export type FormValues = Record<string, string | string[] | 'yes' | 'no'>;
+export type UploadedFileRef = {
+  id: string;
+  name: string;
+  url?: string;
+  size?: number;
+  mimeType?: string;
+};
+
+export type FormValues = Record<
+  string,
+  string | string[] | 'yes' | 'no' | UploadedFileRef[]
+>;
 
 type FormFieldDef = {
   id: string;
@@ -13,6 +24,15 @@ type FormFieldDef = {
   options?: Array<{ value: string; label: string }>;
   showIf?: { field: string; equals: string | string[] };
 };
+
+function isUploadedFileRef(value: unknown): value is UploadedFileRef {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as UploadedFileRef).id === 'string' &&
+    !!(value as UploadedFileRef).id
+  );
+}
 
 type FormDefinition = {
   version: number;
@@ -37,7 +57,10 @@ function isFieldVisible(field: FormFieldDef, values: FormValues): boolean {
 }
 
 function isEmpty(field: FormFieldDef, value: FormValues[string] | undefined): boolean {
-  if (field.type === 'multichip' || field.type === 'file') {
+  if (field.type === 'file') {
+    return !Array.isArray(value) || value.filter(isUploadedFileRef).length === 0;
+  }
+  if (field.type === 'multichip') {
     return !Array.isArray(value) || value.length === 0;
   }
   if (field.type === 'url_list') {
@@ -74,8 +97,17 @@ function validateFieldType(field: FormFieldDef, value: FormValues[string] | unde
       break;
     }
     case 'url_list':
+      if (!Array.isArray(value)) return `Expected array for ${field.id}`;
+      break;
     case 'file':
       if (!Array.isArray(value)) return `Expected array for ${field.id}`;
+      for (const item of value) {
+        // Allow legacy filename strings during transition; prefer uploaded refs
+        if (typeof item === 'string') continue;
+        if (!isUploadedFileRef(item)) {
+          return `Invalid uploaded file for ${field.id}`;
+        }
+      }
       break;
     case 'text':
     case 'textarea':

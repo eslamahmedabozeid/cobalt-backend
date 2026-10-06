@@ -9,7 +9,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "import:branding-services": "tsx prisma/importBrandingServices.ts"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

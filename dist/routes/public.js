@@ -5,6 +5,7 @@ const prisma_1 = require("../lib/prisma");
 const response_1 = require("../utils/response");
 const orders_1 = require("../services/orders");
 const pricing_1 = require("../services/pricing");
+const orderFiles_1 = require("../lib/orderFiles");
 const router = (0, express_1.Router)();
 function parseJsonField(value, fallback) {
     try {
@@ -171,10 +172,40 @@ router.post('/orders', async (req, res) => {
             totalSAR: order.totalSAR,
             couponCode: order.couponCode,
             items: order.items,
+            files: order.files,
         }, 201);
     }
     catch (e) {
         return (0, response_1.fail)(res, e instanceof Error ? e.message : 'Order failed', 400, undefined, 'ORDER_ERROR');
     }
+});
+/** Public customer questionnaire file upload (images / PDF / Word). */
+router.post('/order-files', (req, res) => {
+    orderFiles_1.orderFileUpload.single('file')(req, res, async (err) => {
+        if (err)
+            return (0, response_1.fail)(res, err.message, 400, undefined, 'UPLOAD_ERROR');
+        if (!req.file)
+            return (0, response_1.fail)(res, 'No file uploaded', 400);
+        const fieldId = String(req.body?.fieldId || '');
+        const url = `/uploads/order-files/${req.file.filename}`;
+        const asset = await prisma_1.prisma.orderFile.create({
+            data: {
+                fieldId,
+                filename: req.file.originalname,
+                storedName: req.file.filename,
+                url,
+                mimeType: req.file.mimetype,
+                size: req.file.size,
+            },
+        });
+        return (0, response_1.ok)(res, {
+            id: asset.id,
+            name: asset.filename,
+            url: asset.url,
+            size: asset.size,
+            mimeType: asset.mimeType,
+            fieldId: asset.fieldId,
+        }, 201);
+    });
 });
 exports.default = router;

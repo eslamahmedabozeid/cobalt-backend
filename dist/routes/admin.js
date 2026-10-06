@@ -4,12 +4,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const fs_1 = __importDefault(require("fs"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = require("../lib/prisma");
 const response_1 = require("../utils/response");
 const auth_1 = require("../middleware/auth");
 const permissions_1 = require("../lib/permissions");
+const orderFiles_1 = require("../lib/orderFiles");
 const router = (0, express_1.Router)();
 function publicAdmin(admin) {
     return admin;
@@ -351,18 +353,31 @@ router.put('/site-settings', auth_1.requireAdmin, (0, auth_1.requirePermission)(
 router.get('/orders', auth_1.requireAdmin, (0, auth_1.requirePermission)('orders', 'read'), async (_req, res) => {
     const orders = await prisma_1.prisma.order.findMany({
         orderBy: { createdAt: 'desc' },
-        include: { items: true },
+        include: { items: true, files: true },
     });
     return (0, response_1.ok)(res, orders);
 });
 router.get('/orders/:id', auth_1.requireAdmin, (0, auth_1.requirePermission)('orders', 'read'), async (req, res) => {
     const order = await prisma_1.prisma.order.findUnique({
         where: { id: req.params.id },
-        include: { items: true },
+        include: { items: true, files: true },
     });
     if (!order)
         return (0, response_1.fail)(res, 'Not found', 404);
     return (0, response_1.ok)(res, order);
+});
+router.get('/orders/:orderId/files/:fileId/download', auth_1.requireAdmin, (0, auth_1.requirePermission)('orders', 'read'), async (req, res) => {
+    const file = await prisma_1.prisma.orderFile.findFirst({
+        where: { id: req.params.fileId, orderId: req.params.orderId },
+    });
+    if (!file)
+        return (0, response_1.fail)(res, 'File not found', 404);
+    const abs = (0, orderFiles_1.absoluteOrderFilePath)(file.storedName);
+    if (!fs_1.default.existsSync(abs))
+        return (0, response_1.fail)(res, 'File missing on disk', 404);
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    return res.sendFile(abs);
 });
 router.patch('/orders/:id', auth_1.requireAdmin, (0, auth_1.requirePermission)('orders', 'update'), async (req, res) => {
     const { status, paymentStatus } = req.body || {};
