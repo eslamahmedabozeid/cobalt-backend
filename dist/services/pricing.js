@@ -1,10 +1,36 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parsePricingConfig = void 0;
 exports.priceServiceLine = priceServiceLine;
 exports.priceBundleLine = priceBundleLine;
 exports.priceLine = priceLine;
 exports.applyCoupon = applyCoupon;
 const prisma_1 = require("../lib/prisma");
+const companyProfilePricing_1 = require("./companyProfilePricing");
+Object.defineProperty(exports, "parsePricingConfig", { enumerable: true, get: function () { return companyProfilePricing_1.parsePricingConfig; } });
+/** Strip forged express keys and incompatible hidden content fields before pricing. */
+function sanitizeCompanyProfileAnswers(raw) {
+    return (0, companyProfilePricing_1.normalizeCompanyProfileAnswers)(raw);
+}
+function answersFromInput(input) {
+    let raw = {};
+    if (input.answers && typeof input.answers === 'object') {
+        raw = input.answers;
+    }
+    else {
+        const details = input.details;
+        if (details && typeof details === 'object') {
+            const nested = details.__answers;
+            if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+                raw = nested;
+            }
+        }
+    }
+    if (input.serviceId === companyProfilePricing_1.COMPANY_PROFILE_SERVICE_ID) {
+        return sanitizeCompanyProfileAnswers(raw);
+    }
+    return raw;
+}
 async function priceServiceLine(input) {
     const qty = Math.max(1, input.quantity || 1);
     const serviceId = input.serviceId;
@@ -52,6 +78,49 @@ async function priceServiceLine(input) {
             calculator: { speed, hasMultilingual },
             serviceTitle: service.title,
             image: service.image,
+        };
+    }
+    // Company Profile — server-side dynamic quote (v1.1)
+    if (service.id === companyProfilePricing_1.COMPANY_PROFILE_SERVICE_ID) {
+        let configRaw = undefined;
+        if (service.pricingConfigJson) {
+            try {
+                configRaw = JSON.parse(service.pricingConfigJson);
+            }
+            catch {
+                configRaw = undefined;
+            }
+        }
+        const quote = (0, companyProfilePricing_1.computeCompanyProfileQuote)(answersFromInput(input), configRaw);
+        if (!quote.ok)
+            throw new Error(quote.message);
+        const packageId = input.packageId;
+        let pkg = packageId
+            ? service.packages.find((p) => p.id === packageId && p.active)
+            : null;
+        if (!pkg && input.selectedOption) {
+            pkg = service.packages.find((p) => p.name === input.selectedOption && p.active) || null;
+        }
+        if (!pkg) {
+            pkg = service.packages.filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0] || null;
+        }
+        if (!pkg)
+            throw new Error(`No package for service ${serviceId}`);
+        const unit = quote.pretaxTotalSAR;
+        return {
+            lineType: 'service',
+            serviceId: service.id,
+            packageId: pkg.id,
+            bundleId: null,
+            addonIds: [],
+            quantity: qty,
+            serverUnitPriceSAR: unit,
+            lineTotalSAR: unit * qty,
+            calculator: null,
+            serviceTitle: service.title,
+            image: service.image,
+            pricingBreakdown: quote,
+            blockCheckout: quote.blockCheckout,
         };
     }
     // Normal service package line

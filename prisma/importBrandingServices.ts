@@ -21,17 +21,21 @@ async function main() {
   });
 
   for (const s of BRANDING_SERVICES) {
-    const { packages, form, deliverables, ...svc } = s;
+    const { packages, form, deliverables, pricingConfig, ...svc } = s;
 
     await prisma.service.upsert({
       where: { id: svc.id },
       update: {
         ...svc,
         deliverables: JSON.stringify(deliverables),
+        ...(pricingConfig
+          ? { pricingConfigJson: JSON.stringify(pricingConfig) }
+          : {}),
       },
       create: {
         ...svc,
         deliverables: JSON.stringify(deliverables),
+        pricingConfigJson: pricingConfig ? JSON.stringify(pricingConfig) : null,
       },
     });
 

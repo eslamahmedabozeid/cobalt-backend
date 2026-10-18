@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.OrderPricingError = void 0;
 exports.createOrder = createOrder;
 exports.estimateOrder = estimateOrder;
 const prisma_1 = require("../lib/prisma");
@@ -14,6 +15,14 @@ function orderNumber() {
     const rand = Math.floor(1000 + Math.random() * 9000);
     return `CB-${y}${m}${day}-${rand}`;
 }
+class OrderPricingError extends Error {
+    constructor(message, code, details) {
+        super(message);
+        this.code = code;
+        this.details = details;
+    }
+}
+exports.OrderPricingError = OrderPricingError;
 async function createOrder(body) {
     if (!body.customer?.fullName?.trim())
         throw new Error('customer.fullName required');
@@ -25,6 +34,12 @@ async function createOrder(body) {
     const priced = [];
     for (const item of body.items) {
         priced.push(await (0, pricing_1.priceLine)(item));
+    }
+    for (let i = 0; i < priced.length; i++) {
+        const line = priced[i];
+        if (line.blockCheckout) {
+            throw new OrderPricingError(line.blockCheckout, 'CHECKOUT_BLOCKED');
+        }
     }
     // Validate questionnaires for normal service package lines (not bundles / calculator)
     for (let i = 0; i < body.items.length; i++) {
@@ -51,6 +66,24 @@ async function createOrder(body) {
     }
     const subtotalSAR = priced.reduce((s, l) => s + l.lineTotalSAR, 0);
     const coupon = await (0, pricing_1.applyCoupon)(body.couponCode, subtotalSAR);
+    const clientTotal = body.clientPricing?.grandTotalSAR;
+    if (typeof clientTotal === 'number' &&
+        Number.isFinite(clientTotal) &&
+        clientTotal !== coupon.totalSAR &&
+        !body.acceptPriceChange) {
+        throw new OrderPricingError(`تغيّر المبلغ المعروض إلى ${coupon.totalSAR} ر.س (كان ${clientTotal} ر.س). يرجى تأكيد الاطلاع قبل إرسال الطلب.`, 'PRICE_CHANGED', {
+            previousTotalSAR: clientTotal,
+            newTotalSAR: coupon.totalSAR,
+            subtotalSAR,
+            discountSAR: coupon.discountSAR,
+            items: priced.map((l) => ({
+                serviceId: l.serviceId,
+                serverUnitPriceSAR: l.serverUnitPriceSAR,
+                lineTotalSAR: l.lineTotalSAR,
+                pricingBreakdown: l.pricingBreakdown || null,
+            })),
+        });
+    }
     const order = await prisma_1.prisma.$transaction(async (tx) => {
         if (coupon.couponCode) {
             await tx.coupon.update({
@@ -81,6 +114,7 @@ async function createOrder(body) {
                 items: {
                     create: priced.map((line, idx) => {
                         const raw = body.items[idx];
+                        const isPrelim = Boolean(line.pricingBreakdown?.isPreliminary);
                         return {
                             lineType: line.lineType,
                             serviceId: line.serviceId,
@@ -91,6 +125,24 @@ async function createOrder(body) {
                             detailsJson: JSON.stringify({
                                 ...(raw.details || {}),
                                 ...(raw.answers ? { __answers: raw.answers } : {}),
+                                ...(line.pricingBreakdown
+                                    ? {
+                                        __pricing: {
+                                            version: line.pricingBreakdown.pricingRuleVersion,
+                                            promotionEnabled: line.pricingBreakdown.promotionEnabled,
+                                            isPreliminary: true,
+                                            estimateOnly: true,
+                                            finalPriceAccepted: false,
+                                            preliminaryPages: line.pricingBreakdown.preliminaryPages,
+                                            exactPages: line.pricingBreakdown.preliminaryPages,
+                                            pageTierId: line.pricingBreakdown.pageTierId,
+                                            pageTierLabel: line.pricingBreakdown.pageTierLabel,
+                                            pretaxTotalSAR: line.pricingBreakdown.pretaxTotalSAR,
+                                            note: isPrelim ? 'يبدأ من' : undefined,
+                                            lines: line.pricingBreakdown.lines,
+                                        },
+                                    }
+                                    : {}),
                             }),
                             calculatorJson: line.calculator ? JSON.stringify(line.calculator) : null,
                             serviceTitle: line.serviceTitle || raw.serviceTitle || null,
@@ -129,6 +181,11 @@ async function estimateOrder(body) {
     const priced = [];
     for (const item of body.items) {
         priced.push(await (0, pricing_1.priceLine)(item));
+    }
+    for (const line of priced) {
+        if (line.blockCheckout) {
+            throw new OrderPricingError(line.blockCheckout, 'CHECKOUT_BLOCKED');
+        }
     }
     const subtotalSAR = priced.reduce((s, l) => s + l.lineTotalSAR, 0);
     const coupon = await (0, pricing_1.applyCoupon)(body.couponCode, subtotalSAR);

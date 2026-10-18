@@ -168,11 +168,25 @@ router.use('/services', (() => {
     });
     r.put('/:id', auth_1.requireAdmin, (0, auth_1.requirePermission)('services', 'update'), async (req, res) => {
         try {
-            const { packages, addons, requirementSchema, deliverables, ...rest } = req.body;
+            const { packages, addons, requirementSchema, deliverables, pricingConfig, pricingConfigJson, ...rest } = req.body;
             const data = { ...rest };
             if (deliverables !== undefined) {
                 data.deliverables =
                     typeof deliverables === 'string' ? deliverables : JSON.stringify(deliverables);
+            }
+            if (pricingConfig !== undefined) {
+                data.pricingConfigJson =
+                    pricingConfig == null
+                        ? null
+                        : typeof pricingConfig === 'string'
+                            ? pricingConfig
+                            : JSON.stringify(pricingConfig);
+            }
+            else if (pricingConfigJson !== undefined) {
+                data.pricingConfigJson =
+                    typeof pricingConfigJson === 'string'
+                        ? pricingConfigJson
+                        : JSON.stringify(pricingConfigJson);
             }
             const item = await prisma_1.prisma.service.update({ where: { id: req.params.id }, data });
             return (0, response_1.ok)(res, item);

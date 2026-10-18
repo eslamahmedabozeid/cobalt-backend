@@ -29,7 +29,19 @@ export interface CreateOrderBody {
     discountSAR?: number;
     grandTotalSAR?: number;
   };
+  /** Customer confirmed a server-side reprice that differs from the cart */
+  acceptPriceChange?: boolean;
   source?: string;
+}
+
+export class OrderPricingError extends Error {
+  code: string;
+  details?: Record<string, unknown>;
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
+    super(message);
+    this.code = code;
+    this.details = details;
+  }
 }
 
 export async function createOrder(body: CreateOrderBody) {
@@ -42,6 +54,13 @@ export async function createOrder(body: CreateOrderBody) {
   const priced: Awaited<ReturnType<typeof priceLine>>[] = [];
   for (const item of body.items) {
     priced.push(await priceLine(item));
+  }
+
+  for (let i = 0; i < priced.length; i++) {
+    const line = priced[i];
+    if (line.blockCheckout) {
+      throw new OrderPricingError(line.blockCheckout, 'CHECKOUT_BLOCKED');
+    }
   }
 
   // Validate questionnaires for normal service package lines (not bundles / calculator)
@@ -70,6 +89,31 @@ export async function createOrder(body: CreateOrderBody) {
 
   const subtotalSAR = priced.reduce((s, l) => s + l.lineTotalSAR, 0);
   const coupon = await applyCoupon(body.couponCode, subtotalSAR);
+
+  const clientTotal = body.clientPricing?.grandTotalSAR;
+  if (
+    typeof clientTotal === 'number' &&
+    Number.isFinite(clientTotal) &&
+    clientTotal !== coupon.totalSAR &&
+    !body.acceptPriceChange
+  ) {
+    throw new OrderPricingError(
+      `تغيّر المبلغ المعروض إلى ${coupon.totalSAR} ر.س (كان ${clientTotal} ر.س). يرجى تأكيد الاطلاع قبل إرسال الطلب.`,
+      'PRICE_CHANGED',
+      {
+        previousTotalSAR: clientTotal,
+        newTotalSAR: coupon.totalSAR,
+        subtotalSAR,
+        discountSAR: coupon.discountSAR,
+        items: priced.map((l) => ({
+          serviceId: l.serviceId,
+          serverUnitPriceSAR: l.serverUnitPriceSAR,
+          lineTotalSAR: l.lineTotalSAR,
+          pricingBreakdown: l.pricingBreakdown || null,
+        })),
+      }
+    );
+  }
 
   const order = await prisma.$transaction(async (tx) => {
     if (coupon.couponCode) {
@@ -102,6 +146,7 @@ export async function createOrder(body: CreateOrderBody) {
         items: {
           create: priced.map((line, idx) => {
             const raw = body.items[idx];
+            const isPrelim = Boolean(line.pricingBreakdown?.isPreliminary);
             return {
               lineType: line.lineType,
               serviceId: line.serviceId,
@@ -112,6 +157,24 @@ export async function createOrder(body: CreateOrderBody) {
               detailsJson: JSON.stringify({
                 ...(raw.details || {}),
                 ...(raw.answers ? { __answers: raw.answers } : {}),
+                ...(line.pricingBreakdown
+                  ? {
+                      __pricing: {
+                        version: line.pricingBreakdown.pricingRuleVersion,
+                        promotionEnabled: line.pricingBreakdown.promotionEnabled,
+                        isPreliminary: true,
+                        estimateOnly: true,
+                        finalPriceAccepted: false,
+                        preliminaryPages: line.pricingBreakdown.preliminaryPages,
+                        exactPages: line.pricingBreakdown.preliminaryPages,
+                        pageTierId: line.pricingBreakdown.pageTierId,
+                        pageTierLabel: line.pricingBreakdown.pageTierLabel,
+                        pretaxTotalSAR: line.pricingBreakdown.pretaxTotalSAR,
+                        note: isPrelim ? 'يبدأ من' : undefined,
+                        lines: line.pricingBreakdown.lines,
+                      },
+                    }
+                  : {}),
               }),
               calculatorJson: line.calculator ? JSON.stringify(line.calculator) : null,
               serviceTitle: line.serviceTitle || raw.serviceTitle || null,
@@ -153,6 +216,11 @@ export async function estimateOrder(body: CreateOrderBody) {
   const priced: Awaited<ReturnType<typeof priceLine>>[] = [];
   for (const item of body.items) {
     priced.push(await priceLine(item));
+  }
+  for (const line of priced) {
+    if (line.blockCheckout) {
+      throw new OrderPricingError(line.blockCheckout, 'CHECKOUT_BLOCKED');
+    }
   }
   const subtotalSAR = priced.reduce((s, l) => s + l.lineTotalSAR, 0);
   const coupon = await applyCoupon(body.couponCode, subtotalSAR);

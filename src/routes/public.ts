@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { ok, fail } from '../utils/response';
-import { createOrder, estimateOrder } from '../services/orders';
+import { createOrder, estimateOrder, OrderPricingError } from '../services/orders';
 import { applyCoupon } from '../services/pricing';
+import { parsePricingConfig, COMPANY_PROFILE_SERVICE_ID } from '../services/companyProfilePricing';
 import { orderFileUpload } from '../lib/orderFiles';
 
 const router = Router();
 
-function parseJsonField<T>(value: string, fallback: T): T {
+function parseJsonField<T>(value: string | null | undefined, fallback: T): T {
+  if (value == null || value === '') return fallback;
   try {
     return JSON.parse(value) as T;
   } catch {
@@ -52,13 +54,23 @@ router.get('/services', async (_req, res) => {
   });
   return ok(
     res,
-    services.map((s) => ({
-      ...s,
-      deliverables: parseJsonField(s.deliverables, [] as string[]),
-      requirementSchema: s.requirementSchema
-        ? parseJsonField(s.requirementSchema.schemaJson, {})
-        : null,
-    }))
+    services.map((s) => {
+      const pricingConfig =
+        s.id === COMPANY_PROFILE_SERVICE_ID
+          ? parsePricingConfig(parseJsonField(s.pricingConfigJson, null))
+          : s.pricingConfigJson
+            ? parseJsonField(s.pricingConfigJson, null)
+            : null;
+      return {
+        ...s,
+        pricingConfigJson: undefined,
+        deliverables: parseJsonField(s.deliverables, [] as string[]),
+        requirementSchema: s.requirementSchema
+          ? parseJsonField(s.requirementSchema.schemaJson, {})
+          : null,
+        pricingConfig,
+      };
+    })
   );
 });
 
@@ -72,12 +84,20 @@ router.get('/services/:slug', async (req, res) => {
     },
   });
   if (!service) return fail(res, 'Service not found', 404, undefined, 'NOT_FOUND');
+  const pricingConfig =
+    service.id === COMPANY_PROFILE_SERVICE_ID
+      ? parsePricingConfig(parseJsonField(service.pricingConfigJson, null))
+      : service.pricingConfigJson
+        ? parseJsonField(service.pricingConfigJson, null)
+        : null;
   return ok(res, {
     ...service,
+    pricingConfigJson: undefined,
     deliverables: parseJsonField(service.deliverables, [] as string[]),
     requirementSchema: service.requirementSchema
       ? parseJsonField(service.requirementSchema.schemaJson, {})
       : null,
+    pricingConfig,
   });
 });
 
@@ -169,6 +189,14 @@ router.post('/pricing/estimate', async (req, res) => {
     const estimate = await estimateOrder(req.body);
     return ok(res, estimate);
   } catch (e) {
+    if (e instanceof OrderPricingError) {
+      return res.status(400).json({
+        success: false,
+        message: e.message,
+        code: e.code,
+        data: e.details,
+      });
+    }
     return fail(res, e instanceof Error ? e.message : 'Estimate failed', 400, undefined, 'PRICING_ERROR');
   }
 });
@@ -193,6 +221,14 @@ router.post('/orders', async (req, res) => {
       201
     );
   } catch (e) {
+    if (e instanceof OrderPricingError) {
+      return res.status(409).json({
+        success: false,
+        message: e.message,
+        code: e.code,
+        data: e.details,
+      });
+    }
     return fail(res, e instanceof Error ? e.message : 'Order failed', 400, undefined, 'ORDER_ERROR');
   }
 });

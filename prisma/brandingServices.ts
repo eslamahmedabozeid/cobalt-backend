@@ -3,8 +3,15 @@
  * الشعار / الهوية / الكروت / المطبوعات are separate services (not combined).
  */
 
+import {
+  COMPANY_PROFILE_FORM_V11,
+  DEFAULT_COMPANY_PROFILE_PRICING,
+} from '../src/services/companyProfilePricing';
+
 const BRANDING_IMAGE = '/assets/cobalt_branding_cover_1787772916470.jpg';
 const PRICE = 100;
+const COMPANY_PROFILE_START = 350;
+const COMPANY_PROFILE_STANDARD = 490;
 
 type Field = {
   id: string;
@@ -854,6 +861,7 @@ export type BrandingServiceDef = {
     active: boolean;
   }>;
   form: object;
+  pricingConfig?: object;
 };
 
 export const BRANDING_SERVICES: BrandingServiceDef[] = [
@@ -863,28 +871,36 @@ export const BRANDING_SERVICES: BrandingServiceDef[] = [
     title: 'تصميم بروفايل الشركة',
     category: 'branding',
     categoryName: 'الهوية البصرية',
-    badge: '📁 بروفايل احترافي',
-    delivery: '⚡ تسليم حسب الباقة',
+    badge: '🎁 عرض الإطلاق',
+    delivery: '⚡ تسليم قياسي 3–5 أيام عمل',
     rating: 5,
     reviewsCount: 0,
     image: BRANDING_IMAGE,
-    priceSAR: PRICE,
-    oldPriceSAR: PRICE,
-    shortDesc: 'تصميم بروفايل شركة احترافي يعرض خدماتك ومشاريعك وهويتك بأسلوب مقنع.',
-    deliverables: ['تصميم صفحات البروفايل', 'تسليم ملفات جاهزة للعرض والطباعة', 'تعديلات حتى الاعتماد'],
+    priceSAR: COMPANY_PROFILE_START,
+    oldPriceSAR: COMPANY_PROFILE_STANDARD,
+    shortDesc:
+      'تصميم بروفايل شركة احترافي بتسعير ديناميكي حسب الصفحات واللغة والمحتوى. يبدأ من 350 ر.س أثناء عرض الإطلاق.',
+    deliverables: [
+      'تصميم صفحات البروفايل حسب الشريحة المختارة',
+      'ملفات PDF عالية الجودة للعرض والطباعة',
+      'جولتان من التعديلات التصميمية ضمن النطاق',
+      'ملف مصدر .ai اختياري برسوم إضافية',
+    ],
     sortOrder: 10,
     active: true,
     packages: [
       {
         id: 'company_profile_basic',
-        name: 'باقة بروفايل الشركة',
-        priceSAR: PRICE,
-        description: 'تصميم بروفايل شركة أساسي قابل للتعديل من لوحة التحكم',
+        name: 'باقة بروفايل الشركة (تسعير ديناميكي)',
+        priceSAR: COMPANY_PROFILE_START,
+        description:
+          'السعر يبدأ من الباقة الأساسية (1–4 صفحات، لغة واحدة، محتوى جاهز، هوية جاهزة، PDF). يُحتسب الإجمالي النهائي من إجاباتك.',
         sortOrder: 1,
         active: true,
       },
     ],
-    form: COMPANY_PROFILE_FORM,
+    form: COMPANY_PROFILE_FORM_V11,
+    pricingConfig: DEFAULT_COMPANY_PROFILE_PRICING,
   },
   {
     id: 'logo-design',

@@ -1,4 +1,11 @@
 import { prisma } from '../lib/prisma';
+import {
+  COMPANY_PROFILE_SERVICE_ID,
+  computeCompanyProfileQuote,
+  normalizeCompanyProfileAnswers,
+  parsePricingConfig,
+  type CompanyProfileQuote,
+} from './companyProfilePricing';
 
 export type LineType = 'service' | 'calculator' | 'bundle';
 
@@ -22,7 +29,47 @@ export interface OrderLineInput {
   uploadedFiles?: string[];
 }
 
-export async function priceServiceLine(input: OrderLineInput) {
+export type PricedLine = {
+  lineType: LineType;
+  serviceId: string | null;
+  packageId: string | null;
+  bundleId: string | null;
+  addonIds: string[];
+  quantity: number;
+  serverUnitPriceSAR: number;
+  lineTotalSAR: number;
+  calculator: { speed: 'normal' | 'express' | 'vip'; hasMultilingual: boolean } | null;
+  serviceTitle: string;
+  image: string;
+  pricingBreakdown?: CompanyProfileQuote | null;
+  blockCheckout?: string;
+};
+
+/** Strip forged express keys and incompatible hidden content fields before pricing. */
+function sanitizeCompanyProfileAnswers(raw: Record<string, unknown>): Record<string, unknown> {
+  return normalizeCompanyProfileAnswers(raw);
+}
+
+function answersFromInput(input: OrderLineInput): Record<string, unknown> {
+  let raw: Record<string, unknown> = {};
+  if (input.answers && typeof input.answers === 'object') {
+    raw = input.answers as Record<string, unknown>;
+  } else {
+    const details = input.details;
+    if (details && typeof details === 'object') {
+      const nested = details.__answers;
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        raw = nested as Record<string, unknown>;
+      }
+    }
+  }
+  if (input.serviceId === COMPANY_PROFILE_SERVICE_ID) {
+    return sanitizeCompanyProfileAnswers(raw);
+  }
+  return raw;
+}
+
+export async function priceServiceLine(input: OrderLineInput): Promise<PricedLine> {
   const qty = Math.max(1, input.quantity || 1);
   const serviceId = input.serviceId;
   if (!serviceId) throw new Error('serviceId required');
@@ -66,6 +113,49 @@ export async function priceServiceLine(input: OrderLineInput) {
       calculator: { speed, hasMultilingual },
       serviceTitle: service.title,
       image: service.image,
+    };
+  }
+
+  // Company Profile — server-side dynamic quote (v1.1)
+  if (service.id === COMPANY_PROFILE_SERVICE_ID) {
+    let configRaw: unknown = undefined;
+    if (service.pricingConfigJson) {
+      try {
+        configRaw = JSON.parse(service.pricingConfigJson);
+      } catch {
+        configRaw = undefined;
+      }
+    }
+    const quote = computeCompanyProfileQuote(answersFromInput(input), configRaw);
+    if (!quote.ok) throw new Error(quote.message);
+
+    const packageId = input.packageId;
+    let pkg = packageId
+      ? service.packages.find((p) => p.id === packageId && p.active)
+      : null;
+    if (!pkg && input.selectedOption) {
+      pkg = service.packages.find((p) => p.name === input.selectedOption && p.active) || null;
+    }
+    if (!pkg) {
+      pkg = service.packages.filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0] || null;
+    }
+    if (!pkg) throw new Error(`No package for service ${serviceId}`);
+
+    const unit = quote.pretaxTotalSAR;
+    return {
+      lineType: 'service' as LineType,
+      serviceId: service.id,
+      packageId: pkg.id,
+      bundleId: null,
+      addonIds: [],
+      quantity: qty,
+      serverUnitPriceSAR: unit,
+      lineTotalSAR: unit * qty,
+      calculator: null,
+      serviceTitle: service.title,
+      image: service.image,
+      pricingBreakdown: quote,
+      blockCheckout: quote.blockCheckout,
     };
   }
 
@@ -117,7 +207,7 @@ export async function priceServiceLine(input: OrderLineInput) {
   };
 }
 
-export async function priceBundleLine(input: OrderLineInput) {
+export async function priceBundleLine(input: OrderLineInput): Promise<PricedLine> {
   const qty = Math.max(1, input.quantity || 1);
   let bundle = input.bundleId
     ? await prisma.bundle.findFirst({ where: { id: input.bundleId, active: true } })
@@ -148,7 +238,7 @@ export async function priceBundleLine(input: OrderLineInput) {
   };
 }
 
-export async function priceLine(input: OrderLineInput) {
+export async function priceLine(input: OrderLineInput): Promise<PricedLine> {
   const isBundle =
     !!input.bundleId ||
     input.serviceId?.startsWith('bundle_') ||
@@ -178,3 +268,5 @@ export async function applyCoupon(code: string | null | undefined, subtotalSAR: 
     totalSAR: Math.max(0, subtotalSAR - discountSAR),
   };
 }
+
+export { parsePricingConfig };

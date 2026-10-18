@@ -214,6 +214,8 @@ model Service {
   oldPriceSAR   Int
   shortDesc     String
   deliverables  String // JSON array
+  /// Optional JSON pricing rules (e.g. company-profile v1.1 tiers + promotion toggle)
+  pricingConfigJson String?
   sortOrder     Int      @default(0)
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
