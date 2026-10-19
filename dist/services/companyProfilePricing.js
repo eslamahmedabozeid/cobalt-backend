@@ -137,30 +137,6 @@ function computeCompanyProfileQuote(answersInput, configInput) {
     if (!['ready', 'basic', 'full_brand'].includes(identity)) {
         return { ok: false, message: 'يرجى تحديد حالة الهوية البصرية' };
     }
-    if (identity === 'full_brand') {
-        return {
-            ok: true,
-            pricingRuleVersion: config.version,
-            promotionEnabled: config.promotionEnabled,
-            preliminaryPages: pages,
-            exactPages: pages,
-            pageTierId: tierId,
-            pageTierLabel: tier.label,
-            isPreliminary: true,
-            baseStandardSAR: 0,
-            baseActiveSAR: 0,
-            bilingualDesignSAR: 0,
-            contentSAR: 0,
-            translationDisplaySAR: 0,
-            identitySAR: 0,
-            deliverableSAR: 0,
-            expressFeeSAR: 0,
-            pretaxSubtotalSAR: 0,
-            pretaxTotalSAR: 0,
-            lines: [],
-            blockCheckout: 'خدمة الهوية البصرية الكاملة تتطلب طلباً منفصلاً / متابعة يدوية قبل إتمام الشراء',
-        };
-    }
     const deliverables = String(answers.deliverables || '');
     if (!['pdf', 'editable'].includes(deliverables)) {
         return { ok: false, message: 'يرجى اختيار ملفات التسليم النهائية' };
@@ -173,6 +149,7 @@ function computeCompanyProfileQuote(answersInput, configInput) {
     // Only a future server-side approved quote (answers.__expressQuote from trusted merge) may apply.
     let expressFeeSAR = 0;
     let blockCheckout;
+    // full_brand: no automatic identity fee; profile/other charges stay; answer is saved with the order.
     if (delivery === 'rush') {
         const trusted = answers.__expressQuote;
         const quote = trusted && typeof trusted === 'object' && !Array.isArray(trusted)

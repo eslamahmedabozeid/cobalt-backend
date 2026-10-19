@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { applyCoupon, priceLine, OrderLineInput } from './pricing';
-import { validateQuestionnaireAnswers } from './questionnaire';
+import { isMeaningfulText, validateQuestionnaireAnswers } from './questionnaire';
 import { collectFileRefsFromAnswers, linkOrderFiles } from '../lib/orderFiles';
 
 function orderNumber() {
@@ -45,8 +45,27 @@ export class OrderPricingError extends Error {
 }
 
 export async function createOrder(body: CreateOrderBody) {
-  if (!body.customer?.fullName?.trim()) throw new Error('customer.fullName required');
-  if (!body.customer?.phone?.trim()) throw new Error('customer.phone required');
+  if (!body.customer?.fullName?.trim()) throw new Error('اسم العميل مطلوب');
+  if (!isMeaningfulText(body.customer.fullName)) {
+    throw new Error('يرجى إدخال اسم ذي معنى يحتوي على حرف أو رقم على الأقل');
+  }
+  if (!body.customer?.phone?.trim()) throw new Error('رقم الجوال مطلوب');
+  {
+    const phoneDigits = String(body.customer.phone)
+      .replace(/[\u0660-\u0669]/g, (ch) => String(ch.charCodeAt(0) - 0x0660))
+      .replace(/[\u06F0-\u06F9]/g, (ch) => String(ch.charCodeAt(0) - 0x06f0))
+      .replace(/\D/g, '');
+    if (phoneDigits.length < 8) throw new Error('يرجى إدخال رقم جوال صحيح');
+  }
+  if (body.customer.email?.trim()) {
+    const email = body.customer.email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('يرجى إدخال بريد إلكتروني صحيح');
+    }
+  }
+  if (body.customer.notes?.trim() && !isMeaningfulText(body.customer.notes)) {
+    throw new Error('يرجى إدخال ملاحظات ذات معنى أو اترك الحقل فارغاً');
+  }
   if (!Array.isArray(body.items) || body.items.length === 0) {
     throw new Error('items required');
   }

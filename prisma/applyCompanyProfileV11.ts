@@ -1,10 +1,10 @@
 /**
- * Targeted update: company-profile service only (form v1.1 + pricing config).
+ * Targeted update: company-profile pricing/metadata only.
+ * Does NOT touch ServiceRequirementSchema (Admin form is authoritative).
  * Does NOT run the general seed or touch other services.
  */
 import { PrismaClient } from '@prisma/client';
 import {
-  COMPANY_PROFILE_FORM_V11,
   COMPANY_PROFILE_SERVICE_ID,
   DEFAULT_COMPANY_PROFILE_PRICING,
 } from '../src/services/companyProfilePricing';
@@ -57,21 +57,8 @@ async function main() {
     });
   }
 
-  await prisma.serviceRequirementSchema.upsert({
-    where: { serviceId: COMPANY_PROFILE_SERVICE_ID },
-    update: {
-      schemaJson: JSON.stringify(COMPANY_PROFILE_FORM_V11),
-      version: 2,
-    },
-    create: {
-      serviceId: COMPANY_PROFILE_SERVICE_ID,
-      schemaJson: JSON.stringify(COMPANY_PROFILE_FORM_V11),
-      version: 2,
-    },
-  });
-
   console.log(
-    `✓ ${COMPANY_PROFILE_SERVICE_ID}: price ${STARTING_PRICE} (was ${existing.priceSAR}), promo on, form v1.1 applied`
+    `✓ ${COMPANY_PROFILE_SERVICE_ID}: price ${STARTING_PRICE} (was ${existing.priceSAR}), promo on; schema left unchanged`
   );
 }
 
