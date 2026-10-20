@@ -394,14 +394,61 @@ router.get('/orders/:orderId/files/:fileId/download', auth_1.requireAdmin, (0, a
     return res.sendFile(abs);
 });
 router.patch('/orders/:id', auth_1.requireAdmin, (0, auth_1.requirePermission)('orders', 'update'), async (req, res) => {
-    const { status, paymentStatus } = req.body || {};
+    const { status, paymentStatus, contentDelivery } = req.body || {};
+    // Optional: mark deferred company-profile content as received/accepted (starts production window)
+    if (contentDelivery &&
+        typeof contentDelivery === 'object' &&
+        typeof contentDelivery.orderItemId === 'string' &&
+        (contentDelivery.status === 'received' || contentDelivery.status === 'accepted')) {
+        const item = await prisma_1.prisma.orderItem.findFirst({
+            where: { id: contentDelivery.orderItemId, orderId: req.params.id },
+        });
+        if (!item)
+            return (0, response_1.fail)(res, 'بند الطلب غير موجود', 404);
+        let details = {};
+        try {
+            details = item.detailsJson ? JSON.parse(item.detailsJson) : {};
+        }
+        catch {
+            details = {};
+        }
+        const prev = details.__contentDelivery && typeof details.__contentDelivery === 'object'
+            ? details.__contentDelivery
+            : {};
+        const nextBusinessDayIso = (() => {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + 1);
+            // KSA weekend: Friday (5) + Saturday (6)
+            while (d.getDay() === 5 || d.getDay() === 6) {
+                d.setDate(d.getDate() + 1);
+            }
+            return d.toISOString();
+        })();
+        const nextStatus = contentDelivery.status;
+        details.__contentDelivery = {
+            ...prev,
+            status: nextStatus,
+            productionEligible: nextStatus === 'accepted',
+            productionStartedAt: nextStatus === 'accepted'
+                ? nextBusinessDayIso
+                : prev.productionStartedAt ?? null,
+            updatedAt: new Date().toISOString(),
+            acceptedBy: 'admin',
+        };
+        details.content_delivery_status = nextStatus;
+        await prisma_1.prisma.orderItem.update({
+            where: { id: item.id },
+            data: { detailsJson: JSON.stringify(details) },
+        });
+    }
     const order = await prisma_1.prisma.order.update({
         where: { id: req.params.id },
         data: {
             ...(status ? { status } : {}),
             ...(paymentStatus ? { paymentStatus } : {}),
         },
-        include: { items: true },
+        include: { items: true, files: true },
     });
     return (0, response_1.ok)(res, order);
 });

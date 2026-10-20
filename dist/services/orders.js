@@ -7,6 +7,7 @@ const prisma_1 = require("../lib/prisma");
 const pricing_1 = require("./pricing");
 const questionnaire_1 = require("./questionnaire");
 const orderFiles_1 = require("../lib/orderFiles");
+const companyProfilePricing_1 = require("./companyProfilePricing");
 function orderNumber() {
     const d = new Date();
     const y = d.getFullYear().toString().slice(-2);
@@ -145,6 +146,26 @@ async function createOrder(body) {
                             detailsJson: JSON.stringify({
                                 ...(raw.details || {}),
                                 ...(raw.answers ? { __answers: raw.answers } : {}),
+                                ...(line.serviceId === 'company-profile' && raw.answers
+                                    ? (() => {
+                                        const meta = (0, companyProfilePricing_1.buildContentDeliveryMeta)(raw.answers);
+                                        return meta
+                                            ? {
+                                                __contentDelivery: meta,
+                                                content_delivery_status: meta.status,
+                                            }
+                                            : {
+                                                __contentDelivery: {
+                                                    status: 'received',
+                                                    productionEligible: true,
+                                                    productionStartedAt: null,
+                                                    note: 'المحتوى مرفق مع الطلب أو مسار الكتابة لا يتطلب ملفًا مؤجلاً',
+                                                    updatedAt: new Date().toISOString(),
+                                                },
+                                                content_delivery_status: 'received',
+                                            };
+                                    })()
+                                    : {}),
                                 ...(line.pricingBreakdown
                                     ? {
                                         __pricing: {

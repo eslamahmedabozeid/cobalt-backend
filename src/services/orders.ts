@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma';
 import { applyCoupon, priceLine, OrderLineInput } from './pricing';
 import { isMeaningfulText, validateQuestionnaireAnswers } from './questionnaire';
 import { collectFileRefsFromAnswers, linkOrderFiles } from '../lib/orderFiles';
+import { buildContentDeliveryMeta } from './companyProfilePricing';
 
 function orderNumber() {
   const d = new Date();
@@ -176,6 +177,28 @@ export async function createOrder(body: CreateOrderBody) {
               detailsJson: JSON.stringify({
                 ...(raw.details || {}),
                 ...(raw.answers ? { __answers: raw.answers } : {}),
+                ...(line.serviceId === 'company-profile' && raw.answers
+                  ? (() => {
+                      const meta = buildContentDeliveryMeta(
+                        raw.answers as Record<string, unknown>
+                      );
+                      return meta
+                        ? {
+                            __contentDelivery: meta,
+                            content_delivery_status: meta.status,
+                          }
+                        : {
+                            __contentDelivery: {
+                              status: 'received',
+                              productionEligible: true,
+                              productionStartedAt: null,
+                              note: 'المحتوى مرفق مع الطلب أو مسار الكتابة لا يتطلب ملفًا مؤجلاً',
+                              updatedAt: new Date().toISOString(),
+                            },
+                            content_delivery_status: 'received',
+                          };
+                    })()
+                  : {}),
                 ...(line.pricingBreakdown
                   ? {
                       __pricing: {

@@ -113,6 +113,96 @@ export function standardBaseForPages(pages: number, config: CompanyProfilePricin
   return tier.standardBaseSAR;
 }
 
+/** Active Step 02 content-prep value (language-scoped). Used by showIf alias `content_preparation`. */
+export function getActiveContentPreparation(
+  answers: Record<string, unknown>
+): string {
+  const language = String(answers.language || '');
+  if (language === 'both') return String(answers.content_preparation_both || '');
+  if (language === 'ar' || language === 'en') {
+    return String(answers.content_preparation_one || '');
+  }
+  return '';
+}
+
+export const CONTENT_PREP_READY = [
+  'ready_one',
+  'ready_both',
+  'ready_one_translate',
+] as const;
+export const CONTENT_PREP_REWRITE = ['rewrite_one', 'rewrite_both'] as const;
+export const CONTENT_PREP_WRITE = ['write_one', 'write_both'] as const;
+
+export type ContentFlowKind = 'ready' | 'rewrite' | 'write' | '';
+
+export function getContentFlowKind(
+  answers: Record<string, unknown>
+): ContentFlowKind {
+  const prep = getActiveContentPreparation(answers);
+  if ((CONTENT_PREP_READY as readonly string[]).includes(prep)) return 'ready';
+  if ((CONTENT_PREP_REWRITE as readonly string[]).includes(prep)) return 'rewrite';
+  if ((CONTENT_PREP_WRITE as readonly string[]).includes(prep)) return 'write';
+  return '';
+}
+
+/** Brief fields required only on the write-new-content path (matches live Admin write workflow). */
+export const WRITE_PATH_REQUIRED_BRIEF_IDS = [
+  'company_overview',
+  'offerings',
+  'vision',
+  'mission',
+  'values',
+  'differentiators',
+  'clients_partners',
+  'profile_goal',
+  'target_audience',
+] as const;
+
+export function buildContentDeliveryMeta(
+  answers: Record<string, unknown>
+): {
+  status: 'awaiting_content' | 'received' | 'accepted';
+  kind: 'final' | 'draft';
+  language: string;
+  sourceLanguage?: string;
+  missingLabel: string;
+  productionStartedAt: null;
+  productionEligible: false;
+  updatedAt: string;
+} | null {
+  if (String(answers.content_file_later || '') !== 'yes') return null;
+  const flow = getContentFlowKind(answers);
+  if (flow !== 'ready' && flow !== 'rewrite') return null;
+  const language = String(answers.language || '');
+  const kind = flow === 'rewrite' ? 'draft' : 'final';
+  const langLabel =
+    language === 'both'
+      ? 'العربية والإنجليزية'
+      : language === 'en'
+        ? 'الإنجليزية'
+        : language === 'ar'
+          ? 'العربية'
+          : language || 'غير محدد';
+  const missingLabel =
+    kind === 'draft'
+      ? `مسودة المحتوى (${langLabel})`
+      : `المحتوى النهائي (${langLabel})`;
+  const sourceLanguage =
+    getActiveContentPreparation(answers) === 'ready_one_translate'
+      ? String(answers.source_language || '') || undefined
+      : undefined;
+  return {
+    status: 'awaiting_content',
+    kind,
+    language,
+    ...(sourceLanguage ? { sourceLanguage } : {}),
+    missingLabel,
+    productionStartedAt: null,
+    productionEligible: false,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Drop incompatible / hidden content fields so ar and en quote identically
  * for the same visible options, and bilingual leftovers cannot affect pricing.
@@ -145,6 +235,11 @@ export function normalizeCompanyProfileAnswers(
     out.content_preparation_one = '';
     out.content_preparation_both = '';
     out.source_language = '';
+  }
+
+  const flow = getContentFlowKind(out);
+  if (flow === 'write' || !flow) {
+    out.content_file_later = 'no';
   }
 
   return out;
@@ -455,20 +550,58 @@ export const COMPANY_PROFILE_FORM_V11 = {
           required: false,
         },
         {
-          id: 'website',
+          id: 'digital_presence_type',
+          type: 'radio',
+          label:
+            'هل تمتلك شركتك موقعًا إلكترونيًا أو حسابات على وسائل التواصل الاجتماعي؟',
+          outputKey: 'الحضور الرقمي',
+          required: true,
+          options: [
+            {
+              value: 'both',
+              label: 'نعم، لدي موقع إلكتروني وحسابات تواصل اجتماعي',
+            },
+            { value: 'website_only', label: 'لدي موقع إلكتروني فقط' },
+            { value: 'social_only', label: 'لدي حسابات تواصل اجتماعي فقط' },
+            { value: 'none', label: 'لا، ليس لدي أي منهما حاليًا' },
+          ],
+        },
+        {
+          id: 'website_link_later',
+          type: 'checkbox',
+          label: 'تأجيل رابط الموقع',
+          outputKey: 'رابط الموقع لاحقًا',
+          required: false,
+          placeholder: 'سأضيف الرابط لاحقًا',
+          showIf: { field: 'digital_presence_type', equals: ['both', 'website_only'] },
+        },
+        {
+          id: 'website_url',
           type: 'text',
           label: 'رابط الموقع الإلكتروني',
           outputKey: 'الموقع الإلكتروني',
           required: false,
           placeholder: 'https://',
+          showIf: { field: 'digital_presence_type', equals: ['both', 'website_only'] },
         },
         {
-          id: 'social_links',
+          id: 'social_links_later',
+          type: 'checkbox',
+          label: 'تأجيل روابط التواصل',
+          outputKey: 'روابط التواصل لاحقًا',
+          required: false,
+          placeholder: 'سأضيف الرابط لاحقًا',
+          showIf: { field: 'digital_presence_type', equals: ['both', 'social_only'] },
+        },
+        {
+          id: 'social_media_urls',
           type: 'url_list',
           label: 'روابط حسابات التواصل الاجتماعي',
           outputKey: 'حسابات السوشيال',
           required: false,
           placeholder: 'https://',
+          addButtonLabel: 'إضافة رابط +',
+          showIf: { field: 'digital_presence_type', equals: ['both', 'social_only'] },
         },
         {
           id: 'preferred_contact',
@@ -489,7 +622,7 @@ export const COMPANY_PROFILE_FORM_V11 = {
           label: 'بيانات التواصل لطريقة التواصل المختارة',
           outputKey: 'بيانات التواصل',
           required: true,
-          placeholder: 'رقم الجوال أو البريد...',
+          placeholder: 'رقم الجوال أو البريد الإلكتروني',
         },
       ],
     },
@@ -649,8 +782,64 @@ export const COMPANY_PROFILE_FORM_V11 = {
       step: '03',
       icon: '📝',
       title: 'محتوى البروفايل',
-      desc: 'حقول تعريفية — لا تغيّر السعر مباشرة',
+      desc: 'حسب اختيار إعداد المحتوى في الخطوة 2 — لا يغيّر السعر مباشرة',
       fields: [
+        {
+          id: 'final_copy_file',
+          type: 'file',
+          label: 'أرفق ملف المحتوى',
+          outputKey: 'ملف المحتوى',
+          multiple: true,
+          required: false,
+          showIf: {
+            field: 'content_preparation',
+            equals: [
+              'ready_one',
+              'ready_both',
+              'ready_one_translate',
+              'rewrite_one',
+              'rewrite_both',
+              'write_one',
+              'write_both',
+            ],
+          },
+        },
+        {
+          id: 'content_file_later',
+          type: 'checkbox',
+          label: 'سأوفر الملف لاحقًا',
+          outputKey: 'تأجيل ملف المحتوى',
+          required: false,
+          placeholder: 'سأوفر الملف لاحقًا',
+          showIf: {
+            field: 'content_preparation',
+            equals: [
+              'ready_one',
+              'ready_both',
+              'ready_one_translate',
+              'rewrite_one',
+              'rewrite_both',
+            ],
+          },
+        },
+        {
+          id: 'content_instructions',
+          type: 'textarea',
+          label: 'تعليمات إضافية (اختياري)',
+          outputKey: 'تعليمات المحتوى',
+          required: false,
+          rows: 3,
+          showIf: {
+            field: 'content_preparation',
+            equals: [
+              'ready_one',
+              'ready_both',
+              'ready_one_translate',
+              'rewrite_one',
+              'rewrite_both',
+            ],
+          },
+        },
         {
           id: 'company_overview',
           type: 'textarea',
@@ -754,16 +943,8 @@ export const COMPANY_PROFILE_FORM_V11 = {
       step: '04',
       icon: '📁',
       title: 'الملفات والمراجع الإبداعية',
-      desc: 'الصور والملفات الاختيارية لا تمنع إتمام الطلب؛ قد تُطلب قبل بدء التنفيذ',
+      desc: 'الصور والملفات الاختيارية لا تمنع إتمام الطلب؛ ملف المحتوى يُرفع في الخطوة 3',
       fields: [
-        {
-          id: 'final_copy_file',
-          type: 'file',
-          label: 'ارفع المحتوى النصي النهائي إن وُجد',
-          outputKey: 'ملف المحتوى النهائي',
-          multiple: true,
-          required: false,
-        },
         {
           id: 'logo_file',
           type: 'file',

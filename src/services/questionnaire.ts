@@ -3,6 +3,12 @@
  * Mirrors storefront rules in frontend/src/lib/form-schema.ts — do not trust client validation.
  */
 
+import {
+  getActiveContentPreparation,
+  getContentFlowKind,
+  WRITE_PATH_REQUIRED_BRIEF_IDS,
+} from './companyProfilePricing';
+
 export type UploadedFileRef = {
   id: string;
   name: string;
@@ -49,12 +55,19 @@ function isFormDefinitionV2(value: unknown): value is FormDefinition {
   );
 }
 
+function resolveShowIfCurrent(fieldName: string, values: FormValues): string {
+  if (fieldName === 'content_preparation') {
+    return getActiveContentPreparation(values as Record<string, unknown>);
+  }
+  return String(values[fieldName] ?? '');
+}
+
 function isFieldVisible(field: FormFieldDef, values: FormValues): boolean {
   if (!field.showIf) return true;
-  const current = values[field.showIf.field];
+  const current = resolveShowIfCurrent(field.showIf.field, values);
   const equals = field.showIf.equals;
-  if (Array.isArray(equals)) return equals.includes(String(current));
-  return String(current) === String(equals);
+  if (Array.isArray(equals)) return equals.includes(current);
+  return current === String(equals);
 }
 
 function isEmpty(field: FormFieldDef, value: FormValues[string] | undefined): boolean {
@@ -65,9 +78,12 @@ function isEmpty(field: FormFieldDef, value: FormValues[string] | undefined): bo
     return !Array.isArray(value) || value.length === 0;
   }
   if (field.type === 'url_list') {
-    return !Array.isArray(value) || value.filter(Boolean).length === 0;
+    return !Array.isArray(value) || value.filter((v) => String(v ?? '').trim()).length === 0;
   }
-  if (field.type === 'yesno') return value !== 'yes' && value !== 'no';
+  if (field.type === 'yesno' || field.type === 'checkbox') {
+    return value !== 'yes' && value !== 'no';
+  }
+  if (field.type === 'radio') return !String(value ?? '').trim();
   return !String(value ?? '').trim();
 }
 
@@ -89,10 +105,18 @@ type TextInputKind = 'email' | 'phone' | 'url' | 'numeric' | 'text';
 
 function classifyTextField(field: FormFieldDef): TextInputKind {
   if (field.type === 'textarea') return 'text';
-  const hay = `${field.id} ${field.label} ${field.placeholder || ''}`.toLowerCase();
-  if (/email|e-mail|بريد|ايميل|إيميل/.test(hay)) return 'email';
+  // Use id + label only — placeholders often mention unrelated examples (e.g. "بريد").
+  const hay = `${field.id} ${field.label}`.toLowerCase();
+  if (/(^|[\s_-])(email|e-mail)($|[\s_-])|بريد إلكتروني|ايميل|إيميل/.test(hay)) {
+    return 'email';
+  }
   if (/phone|mobile|whatsapp|\btel\b|جوال|هاتف|موبايل|واتس/.test(hay)) return 'phone';
-  if (/(^|[\s_-])url($|[\s_-])|website|web_?site|رابط|موقع/.test(hay)) return 'url';
+  if (
+    field.id === 'website_url' ||
+    /(^|[\s_-])(url|website|web_?site)($|[\s_-])|رابط الموقع|موقع إلكتروني/.test(hay)
+  ) {
+    return 'url';
+  }
   if (/(^|[\s_-])(qty|quantity|amount|count|number|numeric)($|[\s_-])/i.test(hay)) {
     return 'numeric';
   }
@@ -122,7 +146,9 @@ function isValidHttpUrl(value: string): boolean {
   try {
     const withProto = /^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`;
     const u = new URL(withProto);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    if (!(u.protocol === 'http:' || u.protocol === 'https:')) return false;
+    // Reject bare words like "not-a-url" that URL() still accepts as hostnames.
+    return /\./.test(u.hostname) && u.hostname.length > 2;
   } catch {
     return false;
   }
@@ -137,9 +163,22 @@ const MSG = {
   meaningful: 'يرجى إدخال نص ذي معنى يحتوي على حرف أو رقم على الأقل',
   email: 'يرجى إدخال بريد إلكتروني صحيح',
   phone: 'يرجى إدخال رقم جوال صحيح',
+  contact: 'يرجى إدخال رقم جوال أو بريد إلكتروني صحيح',
   url: 'يرجى إدخال رابط صحيح',
   numeric: 'يرجى إدخال رقم صحيح',
 } as const;
+
+function isContactDetailsField(field: FormFieldDef): boolean {
+  return (
+    field.id === 'contact_details' ||
+    /بيانات التواصل|طريقة التواصل المختارة/.test(field.label || '')
+  );
+}
+
+function isValidPhoneOrEmail(value: string): boolean {
+  const s = sanitizeTextInput(value);
+  return isValidEmail(s) || isValidPhone(s);
+}
 
 function validateTextLikeValue(field: FormFieldDef, raw: string): string | null {
   const kind = classifyTextField(field);
@@ -168,7 +207,8 @@ function validateFieldType(field: FormFieldDef, value: FormValues[string] | unde
         return `قيمة غير صالحة للحقل: ${field.label}`;
       }
       break;
-    case 'select': {
+    case 'select':
+    case 'radio': {
       if (!field.options?.length) break;
       const allowed = new Set(field.options.map((o) => o.value));
       if (!allowed.has(String(value))) {
@@ -176,6 +216,11 @@ function validateFieldType(field: FormFieldDef, value: FormValues[string] | unde
       }
       break;
     }
+    case 'checkbox':
+      if (value !== 'yes' && value !== 'no') {
+        return `قيمة غير صالحة للحقل: ${field.label}`;
+      }
+      break;
     case 'multichip': {
       if (!Array.isArray(value)) return `قيمة غير صالحة للحقل: ${field.label}`;
       if (field.options?.length) {
@@ -212,12 +257,65 @@ function validateFieldType(field: FormFieldDef, value: FormValues[string] | unde
 
 function validateVisibleField(
   field: FormFieldDef,
-  value: FormValues[string] | undefined
+  value: FormValues[string] | undefined,
+  values: FormValues
 ): string | null {
   const typeErr = validateFieldType(field, value);
   if (typeErr) return typeErr;
 
   const empty = isEmpty(field, value);
+  const contentFlow = getContentFlowKind(values as Record<string, unknown>);
+
+  if (field.id === 'website_url') {
+    const later = String(values.website_link_later || '') === 'yes';
+    if (empty) return later ? null : `${MSG.required}: ${field.label}`;
+    return isValidHttpUrl(String(value ?? '')) ? null : `${MSG.url}: ${field.label}`;
+  }
+  if (field.id === 'social_media_urls') {
+    const later = String(values.social_links_later || '') === 'yes';
+    if (empty) return later ? null : `${MSG.required}: ${field.label}`;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const s = String(entry ?? '').trim();
+        if (!s) continue;
+        if (!isValidHttpUrl(s)) return `${MSG.url}: ${field.label}`;
+      }
+    }
+    return null;
+  }
+
+  if (field.id === 'final_copy_file') {
+    if (contentFlow === 'ready' || contentFlow === 'rewrite') {
+      const later = String(values.content_file_later || '') === 'yes';
+      if (empty) return later ? null : `${MSG.required}: ${field.label}`;
+      return null;
+    }
+    return null;
+  }
+  if (field.id === 'content_file_later') {
+    return null;
+  }
+
+  if (isContactDetailsField(field)) {
+    if (empty) return field.required ? `${MSG.required}: ${field.label}` : null;
+    return isValidPhoneOrEmail(String(value ?? ''))
+      ? null
+      : `${MSG.contact}: ${field.label}`;
+  }
+
+  const writeRequired = (WRITE_PATH_REQUIRED_BRIEF_IDS as readonly string[]).includes(
+    field.id
+  );
+  if (contentFlow === 'write' && writeRequired && empty) {
+    return `${MSG.required}: ${field.label}`;
+  }
+  if (
+    (contentFlow === 'ready' || contentFlow === 'rewrite') &&
+    (WRITE_PATH_REQUIRED_BRIEF_IDS as readonly string[]).includes(field.id)
+  ) {
+    if (empty) return null;
+  }
+
   if (empty) {
     return field.required ? `${MSG.required}: ${field.label}` : null;
   }
@@ -225,6 +323,13 @@ function validateVisibleField(
   if (field.type === 'text' || field.type === 'textarea') {
     const err = validateTextLikeValue(field, String(value ?? ''));
     return err ? `${err}: ${field.label}` : null;
+  }
+
+  if ((field.type === 'radio' || field.type === 'select') && field.options?.length) {
+    const allowed = new Set(field.options.map((o) => o.value));
+    if (!allowed.has(String(value))) {
+      return `${MSG.required}: ${field.label}`;
+    }
   }
 
   if (field.type === 'url_list' && Array.isArray(value)) {
@@ -257,7 +362,7 @@ export function validateQuestionnaireAnswers(
     for (const field of section.fields) {
       if (!isFieldVisible(field, values)) continue;
 
-      const err = validateVisibleField(field, values[field.id]);
+      const err = validateVisibleField(field, values[field.id], values);
       if (err) {
         return { valid: false, message: err, fieldId: field.id };
       }
