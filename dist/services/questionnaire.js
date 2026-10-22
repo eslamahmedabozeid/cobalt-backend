@@ -8,6 +8,7 @@ exports.sanitizeTextInput = sanitizeTextInput;
 exports.isMeaningfulText = isMeaningfulText;
 exports.validateQuestionnaireAnswers = validateQuestionnaireAnswers;
 const companyProfilePricing_1 = require("./companyProfilePricing");
+const businessCardsPricing_1 = require("./businessCardsPricing");
 function isUploadedFileRef(value) {
     return (!!value &&
         typeof value === 'object' &&
@@ -38,6 +39,9 @@ function isFieldVisible(field, values) {
 function isEmpty(field, value) {
     if (field.type === 'file') {
         return !Array.isArray(value) || value.filter(isUploadedFileRef).length === 0;
+    }
+    if (field.type === 'people_list') {
+        return !Array.isArray(value) || value.length === 0;
     }
     if (field.type === 'multichip') {
         return !Array.isArray(value) || value.length === 0;
@@ -204,6 +208,10 @@ function validateFieldType(field, value) {
                 }
             }
             break;
+        case 'people_list':
+            if (!Array.isArray(value))
+                return `قيمة غير صالحة للحقل: ${field.label}`;
+            break;
         case 'text':
         case 'textarea':
             if (typeof value !== 'string' && typeof value !== 'number') {
@@ -242,6 +250,9 @@ function validateVisibleField(field, value, values) {
         }
         return null;
     }
+    if (field.id === 'sides_note' || field.id === 'print_disclaimer') {
+        return null;
+    }
     if (field.id === 'final_copy_file') {
         if (contentFlow === 'ready' || contentFlow === 'rewrite') {
             const later = String(values.content_file_later || '') === 'yes';
@@ -253,6 +264,31 @@ function validateVisibleField(field, value, values) {
     }
     if (field.id === 'content_file_later') {
         return null;
+    }
+    if (field.id === 'logo_upload') {
+        const later = String(values.logo_later || '') === 'yes';
+        if (empty)
+            return later ? null : `${MSG.required}: ${field.label}`;
+        return null;
+    }
+    if (field.id === 'logo_later')
+        return null;
+    if (field.id === 'qr_payload') {
+        if (empty)
+            return `${MSG.required}: ${field.label}`;
+        return isMeaningfulText(String(value ?? ''))
+            ? null
+            : `${MSG.meaningful}: ${field.label}`;
+    }
+    if (field.id === 'text_only_confirm') {
+        if (String(values.brand_mode || '') === 'none' && String(value || '') !== 'yes') {
+            return `${MSG.required}: ${field.label}`;
+        }
+        return null;
+    }
+    if (field.type === 'people_list') {
+        const err = (0, businessCardsPricing_1.validateBusinessCardsPeople)(values);
+        return err;
     }
     if (isContactDetailsField(field)) {
         if (empty)

@@ -3,6 +3,7 @@ import { applyCoupon, priceLine, OrderLineInput } from './pricing';
 import { isMeaningfulText, validateQuestionnaireAnswers } from './questionnaire';
 import { collectFileRefsFromAnswers, linkOrderFiles } from '../lib/orderFiles';
 import { buildContentDeliveryMeta } from './companyProfilePricing';
+import { buildBusinessCardsDeliveryMeta } from './businessCardsPricing';
 
 function orderNumber() {
   const d = new Date();
@@ -199,6 +200,28 @@ export async function createOrder(body: CreateOrderBody) {
                           };
                     })()
                   : {}),
+                ...(line.serviceId === 'business-cards' && raw.answers
+                  ? (() => {
+                      const meta = buildBusinessCardsDeliveryMeta(
+                        raw.answers as Record<string, unknown>
+                      );
+                      return meta
+                        ? {
+                            __contentDelivery: meta,
+                            content_delivery_status: meta.status,
+                          }
+                        : {
+                            __contentDelivery: {
+                              status: 'received',
+                              productionEligible: true,
+                              productionStartedAt: null,
+                              note: 'بيانات الكرت مكتملة أو لا توجد ملفات مؤجلة',
+                              updatedAt: new Date().toISOString(),
+                            },
+                            content_delivery_status: 'received',
+                          };
+                    })()
+                  : {}),
                 ...(line.pricingBreakdown
                   ? {
                       __pricing: {
@@ -207,10 +230,26 @@ export async function createOrder(body: CreateOrderBody) {
                         isPreliminary: true,
                         estimateOnly: true,
                         finalPriceAccepted: false,
-                        preliminaryPages: line.pricingBreakdown.preliminaryPages,
-                        exactPages: line.pricingBreakdown.preliminaryPages,
-                        pageTierId: line.pricingBreakdown.pageTierId,
-                        pageTierLabel: line.pricingBreakdown.pageTierLabel,
+                        preliminaryPages:
+                          'preliminaryPages' in line.pricingBreakdown
+                            ? line.pricingBreakdown.preliminaryPages
+                            : undefined,
+                        exactPages:
+                          'preliminaryPages' in line.pricingBreakdown
+                            ? line.pricingBreakdown.preliminaryPages
+                            : undefined,
+                        pageTierId:
+                          'pageTierId' in line.pricingBreakdown
+                            ? line.pricingBreakdown.pageTierId
+                            : undefined,
+                        pageTierLabel:
+                          'pageTierLabel' in line.pricingBreakdown
+                            ? line.pricingBreakdown.pageTierLabel
+                            : undefined,
+                        numberOfPeople:
+                          'numberOfPeople' in line.pricingBreakdown
+                            ? line.pricingBreakdown.numberOfPeople
+                            : undefined,
                         pretaxTotalSAR: line.pricingBreakdown.pretaxTotalSAR,
                         note: isPrelim ? 'يبدأ من' : undefined,
                         lines: line.pricingBreakdown.lines,

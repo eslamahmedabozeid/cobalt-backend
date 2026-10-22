@@ -7,6 +7,10 @@ import {
   COMPANY_PROFILE_FORM_V11,
   DEFAULT_COMPANY_PROFILE_PRICING,
 } from '../src/services/companyProfilePricing';
+import {
+  BUSINESS_CARDS_FORM_V1,
+  DEFAULT_BUSINESS_CARDS_PRICING,
+} from '../src/services/businessCardsPricing';
 
 const BRANDING_IMAGE = '/assets/cobalt_branding_cover_1787772916470.jpg';
 const PRICE = 100;
@@ -963,31 +967,39 @@ export const BRANDING_SERVICES: BrandingServiceDef[] = [
   {
     id: 'business-cards',
     slug: 'business-cards',
-    title: 'تصميم الكروت',
+    title: 'تصميم كروت الأعمال',
     category: 'branding',
     categoryName: 'الهوية البصرية',
     badge: '💳 كروت أعمال',
-    delivery: '⚡ تسليم حسب الباقة',
+    delivery: '⚡ تسليم قياسي 2–3 أيام عمل',
     rating: 5,
     reviewsCount: 0,
     image: BRANDING_IMAGE,
-    priceSAR: PRICE,
-    oldPriceSAR: PRICE,
-    shortDesc: 'تصميم كروت أعمال أنيقة ومتوافقة مع هوية البراند.',
-    deliverables: ['وجه وظهر للكرت', 'ملفات جاهزة للطباعة', 'تعديلات حتى الاعتماد'],
+    priceSAR: DEFAULT_BUSINESS_CARDS_PRICING.baseLaunchSAR,
+    oldPriceSAR: DEFAULT_BUSINESS_CARDS_PRICING.baseRegularSAR,
+    shortDesc:
+      'تصميم كرت أعمال مزدوج الوجه — تصميم رقمي فقط. يبدأ من 149 ر.س أثناء عرض الإطلاق.',
+    deliverables: [
+      'وجه وظهر مشمولان',
+      'ملفات رقمية PNG/PDF',
+      'ملف طباعة جاهز عند الطلب (بدون رسوم)',
+      'تعديلات ضمن النطاق',
+    ],
     sortOrder: 13,
     active: true,
+    pricingConfig: DEFAULT_BUSINESS_CARDS_PRICING,
     packages: [
       {
         id: 'business_cards_basic',
         name: 'باقة تصميم الكروت',
-        priceSAR: PRICE,
-        description: 'تصميم كرت أعمال أساسي قابل للتعديل من لوحة التحكم',
+        priceSAR: DEFAULT_BUSINESS_CARDS_PRICING.baseLaunchSAR,
+        description:
+          'السعر يبدأ من 149 ر.س (عرض الإطلاق) لشخص واحد مزدوج الوجه؛ يُحتسب الإجمالي من خياراتك.',
         sortOrder: 1,
         active: true,
       },
     ],
-    form: BUSINESS_CARDS_FORM,
+    form: BUSINESS_CARDS_FORM_V1,
   },
   {
     id: 'print-design',

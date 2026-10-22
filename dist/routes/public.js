@@ -6,6 +6,7 @@ const response_1 = require("../utils/response");
 const orders_1 = require("../services/orders");
 const pricing_1 = require("../services/pricing");
 const companyProfilePricing_1 = require("../services/companyProfilePricing");
+const businessCardsPricing_1 = require("../services/businessCardsPricing");
 const orderFiles_1 = require("../lib/orderFiles");
 const router = (0, express_1.Router)();
 function parseJsonField(value, fallback) {
@@ -54,9 +55,11 @@ router.get('/services', async (_req, res) => {
     return (0, response_1.ok)(res, services.map((s) => {
         const pricingConfig = s.id === companyProfilePricing_1.COMPANY_PROFILE_SERVICE_ID
             ? (0, companyProfilePricing_1.parsePricingConfig)(parseJsonField(s.pricingConfigJson, null))
-            : s.pricingConfigJson
-                ? parseJsonField(s.pricingConfigJson, null)
-                : null;
+            : s.id === businessCardsPricing_1.BUSINESS_CARDS_SERVICE_ID
+                ? (0, businessCardsPricing_1.parseBusinessCardsPricingConfig)(parseJsonField(s.pricingConfigJson, null))
+                : s.pricingConfigJson
+                    ? parseJsonField(s.pricingConfigJson, null)
+                    : null;
         return {
             ...s,
             pricingConfigJson: undefined,
@@ -81,9 +84,11 @@ router.get('/services/:slug', async (req, res) => {
         return (0, response_1.fail)(res, 'Service not found', 404, undefined, 'NOT_FOUND');
     const pricingConfig = service.id === companyProfilePricing_1.COMPANY_PROFILE_SERVICE_ID
         ? (0, companyProfilePricing_1.parsePricingConfig)(parseJsonField(service.pricingConfigJson, null))
-        : service.pricingConfigJson
-            ? parseJsonField(service.pricingConfigJson, null)
-            : null;
+        : service.id === businessCardsPricing_1.BUSINESS_CARDS_SERVICE_ID
+            ? (0, businessCardsPricing_1.parseBusinessCardsPricingConfig)(parseJsonField(service.pricingConfigJson, null))
+            : service.pricingConfigJson
+                ? parseJsonField(service.pricingConfigJson, null)
+                : null;
     return (0, response_1.ok)(res, {
         ...service,
         pricingConfigJson: undefined,

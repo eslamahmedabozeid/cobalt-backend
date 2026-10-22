@@ -78,22 +78,35 @@ export function absoluteOrderFilePath(storedName: string): string {
 export function collectFileRefsFromAnswers(answers: unknown): Array<UploadedFileRef & { fieldId: string }> {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return [];
   const out: Array<UploadedFileRef & { fieldId: string }> = [];
+
+  const pushRef = (fieldId: string, item: unknown) => {
+    if (!item || typeof item !== 'object') return;
+    const ref = item as Partial<UploadedFileRef>;
+    if (typeof ref.id === 'string' && ref.id) {
+      out.push({
+        id: ref.id,
+        name: String(ref.name || ''),
+        url: String(ref.url || ''),
+        size: Number(ref.size || 0),
+        mimeType: String(ref.mimeType || ''),
+        fieldId,
+      });
+    }
+  };
+
   for (const [fieldId, value] of Object.entries(answers as Record<string, unknown>)) {
     if (!Array.isArray(value)) continue;
-    for (const item of value) {
-      if (!item || typeof item !== 'object') continue;
-      const ref = item as Partial<UploadedFileRef>;
-      if (typeof ref.id === 'string' && ref.id) {
-        out.push({
-          id: ref.id,
-          name: String(ref.name || ''),
-          url: String(ref.url || ''),
-          size: Number(ref.size || 0),
-          mimeType: String(ref.mimeType || ''),
-          fieldId,
-        });
-      }
+    // Nested people_list[].photo uploads
+    if (fieldId === 'people_list') {
+      value.forEach((person, idx) => {
+        if (!person || typeof person !== 'object') return;
+        const photos = (person as { photo?: unknown }).photo;
+        if (!Array.isArray(photos)) return;
+        for (const item of photos) pushRef(`people_list[${idx}].photo`, item);
+      });
+      continue;
     }
+    for (const item of value) pushRef(fieldId, item);
   }
   return out;
 }

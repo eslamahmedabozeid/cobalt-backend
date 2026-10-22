@@ -8,6 +8,7 @@ import {
   getContentFlowKind,
   WRITE_PATH_REQUIRED_BRIEF_IDS,
 } from './companyProfilePricing';
+import { validateBusinessCardsPeople } from './businessCardsPricing';
 
 export type UploadedFileRef = {
   id: string;
@@ -19,7 +20,7 @@ export type UploadedFileRef = {
 
 export type FormValues = Record<
   string,
-  string | string[] | 'yes' | 'no' | UploadedFileRef[]
+  string | string[] | 'yes' | 'no' | UploadedFileRef[] | unknown[]
 >;
 
 type FormFieldDef = {
@@ -73,6 +74,9 @@ function isFieldVisible(field: FormFieldDef, values: FormValues): boolean {
 function isEmpty(field: FormFieldDef, value: FormValues[string] | undefined): boolean {
   if (field.type === 'file') {
     return !Array.isArray(value) || value.filter(isUploadedFileRef).length === 0;
+  }
+  if (field.type === 'people_list') {
+    return !Array.isArray(value) || value.length === 0;
   }
   if (field.type === 'multichip') {
     return !Array.isArray(value) || value.length === 0;
@@ -243,6 +247,9 @@ function validateFieldType(field: FormFieldDef, value: FormValues[string] | unde
         }
       }
       break;
+    case 'people_list':
+      if (!Array.isArray(value)) return `قيمة غير صالحة للحقل: ${field.label}`;
+      break;
     case 'text':
     case 'textarea':
       if (typeof value !== 'string' && typeof value !== 'number') {
@@ -284,6 +291,10 @@ function validateVisibleField(
     return null;
   }
 
+  if (field.id === 'sides_note' || field.id === 'print_disclaimer') {
+    return null;
+  }
+
   if (field.id === 'final_copy_file') {
     if (contentFlow === 'ready' || contentFlow === 'rewrite') {
       const later = String(values.content_file_later || '') === 'yes';
@@ -294,6 +305,32 @@ function validateVisibleField(
   }
   if (field.id === 'content_file_later') {
     return null;
+  }
+
+  if (field.id === 'logo_upload') {
+    const later = String(values.logo_later || '') === 'yes';
+    if (empty) return later ? null : `${MSG.required}: ${field.label}`;
+    return null;
+  }
+  if (field.id === 'logo_later') return null;
+
+  if (field.id === 'qr_payload') {
+    if (empty) return `${MSG.required}: ${field.label}`;
+    return isMeaningfulText(String(value ?? ''))
+      ? null
+      : `${MSG.meaningful}: ${field.label}`;
+  }
+
+  if (field.id === 'text_only_confirm') {
+    if (String(values.brand_mode || '') === 'none' && String(value || '') !== 'yes') {
+      return `${MSG.required}: ${field.label}`;
+    }
+    return null;
+  }
+
+  if (field.type === 'people_list') {
+    const err = validateBusinessCardsPeople(values as Record<string, unknown>);
+    return err;
   }
 
   if (isContactDetailsField(field)) {

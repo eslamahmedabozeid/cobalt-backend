@@ -4,6 +4,10 @@ import { ok, fail } from '../utils/response';
 import { createOrder, estimateOrder, OrderPricingError } from '../services/orders';
 import { applyCoupon } from '../services/pricing';
 import { parsePricingConfig, COMPANY_PROFILE_SERVICE_ID } from '../services/companyProfilePricing';
+import {
+  parseBusinessCardsPricingConfig,
+  BUSINESS_CARDS_SERVICE_ID,
+} from '../services/businessCardsPricing';
 import { orderFileUpload } from '../lib/orderFiles';
 
 const router = Router();
@@ -58,9 +62,11 @@ router.get('/services', async (_req, res) => {
       const pricingConfig =
         s.id === COMPANY_PROFILE_SERVICE_ID
           ? parsePricingConfig(parseJsonField(s.pricingConfigJson, null))
-          : s.pricingConfigJson
-            ? parseJsonField(s.pricingConfigJson, null)
-            : null;
+          : s.id === BUSINESS_CARDS_SERVICE_ID
+            ? parseBusinessCardsPricingConfig(parseJsonField(s.pricingConfigJson, null))
+            : s.pricingConfigJson
+              ? parseJsonField(s.pricingConfigJson, null)
+              : null;
       return {
         ...s,
         pricingConfigJson: undefined,
@@ -87,9 +93,11 @@ router.get('/services/:slug', async (req, res) => {
   const pricingConfig =
     service.id === COMPANY_PROFILE_SERVICE_ID
       ? parsePricingConfig(parseJsonField(service.pricingConfigJson, null))
-      : service.pricingConfigJson
-        ? parseJsonField(service.pricingConfigJson, null)
-        : null;
+      : service.id === BUSINESS_CARDS_SERVICE_ID
+        ? parseBusinessCardsPricingConfig(parseJsonField(service.pricingConfigJson, null))
+        : service.pricingConfigJson
+          ? parseJsonField(service.pricingConfigJson, null)
+          : null;
   return ok(res, {
     ...service,
     pricingConfigJson: undefined,

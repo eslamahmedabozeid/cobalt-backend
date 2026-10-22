@@ -6,6 +6,12 @@ import {
   parsePricingConfig,
   type CompanyProfileQuote,
 } from './companyProfilePricing';
+import {
+  BUSINESS_CARDS_SERVICE_ID,
+  computeBusinessCardsQuote,
+  normalizeBusinessCardsAnswers,
+  type BusinessCardsQuote,
+} from './businessCardsPricing';
 
 export type LineType = 'service' | 'calculator' | 'bundle';
 
@@ -41,7 +47,7 @@ export type PricedLine = {
   calculator: { speed: 'normal' | 'express' | 'vip'; hasMultilingual: boolean } | null;
   serviceTitle: string;
   image: string;
-  pricingBreakdown?: CompanyProfileQuote | null;
+  pricingBreakdown?: CompanyProfileQuote | BusinessCardsQuote | null;
   blockCheckout?: string;
 };
 
@@ -65,6 +71,9 @@ function answersFromInput(input: OrderLineInput): Record<string, unknown> {
   }
   if (input.serviceId === COMPANY_PROFILE_SERVICE_ID) {
     return sanitizeCompanyProfileAnswers(raw);
+  }
+  if (input.serviceId === BUSINESS_CARDS_SERVICE_ID) {
+    return normalizeBusinessCardsAnswers(raw);
   }
   return raw;
 }
@@ -127,6 +136,49 @@ export async function priceServiceLine(input: OrderLineInput): Promise<PricedLin
       }
     }
     const quote = computeCompanyProfileQuote(answersFromInput(input), configRaw);
+    if (!quote.ok) throw new Error(quote.message);
+
+    const packageId = input.packageId;
+    let pkg = packageId
+      ? service.packages.find((p) => p.id === packageId && p.active)
+      : null;
+    if (!pkg && input.selectedOption) {
+      pkg = service.packages.find((p) => p.name === input.selectedOption && p.active) || null;
+    }
+    if (!pkg) {
+      pkg = service.packages.filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0] || null;
+    }
+    if (!pkg) throw new Error(`No package for service ${serviceId}`);
+
+    const unit = quote.pretaxTotalSAR;
+    return {
+      lineType: 'service' as LineType,
+      serviceId: service.id,
+      packageId: pkg.id,
+      bundleId: null,
+      addonIds: [],
+      quantity: qty,
+      serverUnitPriceSAR: unit,
+      lineTotalSAR: unit * qty,
+      calculator: null,
+      serviceTitle: service.title,
+      image: service.image,
+      pricingBreakdown: quote,
+      blockCheckout: quote.blockCheckout,
+    };
+  }
+
+  // Business Cards — server-side dynamic quote (v1.0)
+  if (service.id === BUSINESS_CARDS_SERVICE_ID) {
+    let configRaw: unknown = undefined;
+    if (service.pricingConfigJson) {
+      try {
+        configRaw = JSON.parse(service.pricingConfigJson);
+      } catch {
+        configRaw = undefined;
+      }
+    }
+    const quote = computeBusinessCardsQuote(answersFromInput(input), configRaw);
     if (!quote.ok) throw new Error(quote.message);
 
     const packageId = input.packageId;

@@ -8,6 +8,7 @@ exports.applyCoupon = applyCoupon;
 const prisma_1 = require("../lib/prisma");
 const companyProfilePricing_1 = require("./companyProfilePricing");
 Object.defineProperty(exports, "parsePricingConfig", { enumerable: true, get: function () { return companyProfilePricing_1.parsePricingConfig; } });
+const businessCardsPricing_1 = require("./businessCardsPricing");
 /** Strip forged express keys and incompatible hidden content fields before pricing. */
 function sanitizeCompanyProfileAnswers(raw) {
     return (0, companyProfilePricing_1.normalizeCompanyProfileAnswers)(raw);
@@ -28,6 +29,9 @@ function answersFromInput(input) {
     }
     if (input.serviceId === companyProfilePricing_1.COMPANY_PROFILE_SERVICE_ID) {
         return sanitizeCompanyProfileAnswers(raw);
+    }
+    if (input.serviceId === businessCardsPricing_1.BUSINESS_CARDS_SERVICE_ID) {
+        return (0, businessCardsPricing_1.normalizeBusinessCardsAnswers)(raw);
     }
     return raw;
 }
@@ -92,6 +96,49 @@ async function priceServiceLine(input) {
             }
         }
         const quote = (0, companyProfilePricing_1.computeCompanyProfileQuote)(answersFromInput(input), configRaw);
+        if (!quote.ok)
+            throw new Error(quote.message);
+        const packageId = input.packageId;
+        let pkg = packageId
+            ? service.packages.find((p) => p.id === packageId && p.active)
+            : null;
+        if (!pkg && input.selectedOption) {
+            pkg = service.packages.find((p) => p.name === input.selectedOption && p.active) || null;
+        }
+        if (!pkg) {
+            pkg = service.packages.filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0] || null;
+        }
+        if (!pkg)
+            throw new Error(`No package for service ${serviceId}`);
+        const unit = quote.pretaxTotalSAR;
+        return {
+            lineType: 'service',
+            serviceId: service.id,
+            packageId: pkg.id,
+            bundleId: null,
+            addonIds: [],
+            quantity: qty,
+            serverUnitPriceSAR: unit,
+            lineTotalSAR: unit * qty,
+            calculator: null,
+            serviceTitle: service.title,
+            image: service.image,
+            pricingBreakdown: quote,
+            blockCheckout: quote.blockCheckout,
+        };
+    }
+    // Business Cards — server-side dynamic quote (v1.0)
+    if (service.id === businessCardsPricing_1.BUSINESS_CARDS_SERVICE_ID) {
+        let configRaw = undefined;
+        if (service.pricingConfigJson) {
+            try {
+                configRaw = JSON.parse(service.pricingConfigJson);
+            }
+            catch {
+                configRaw = undefined;
+            }
+        }
+        const quote = (0, businessCardsPricing_1.computeBusinessCardsQuote)(answersFromInput(input), configRaw);
         if (!quote.ok)
             throw new Error(quote.message);
         const packageId = input.packageId;
